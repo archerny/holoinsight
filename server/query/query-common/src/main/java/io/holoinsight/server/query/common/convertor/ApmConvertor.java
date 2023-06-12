@@ -3,20 +3,8 @@
  */
 package io.holoinsight.server.query.common.convertor;
 
-import io.holoinsight.server.query.grpc.QueryProto;
-
-import io.holoinsight.server.apm.common.model.query.BasicTrace;
-import io.holoinsight.server.apm.common.model.query.BizopsEndpoint;
-import io.holoinsight.server.apm.common.model.query.Call;
-import io.holoinsight.server.apm.common.model.query.Endpoint;
-import io.holoinsight.server.apm.common.model.query.Node;
-import io.holoinsight.server.apm.common.model.query.ResponseMetric;
-import io.holoinsight.server.apm.common.model.query.Service;
-import io.holoinsight.server.apm.common.model.query.ServiceInstance;
-import io.holoinsight.server.apm.common.model.query.SlowSql;
-import io.holoinsight.server.apm.common.model.query.Topology;
-import io.holoinsight.server.apm.common.model.query.TraceBrief;
-import io.holoinsight.server.apm.common.model.query.VirtualComponent;
+import com.google.common.collect.Iterables;
+import io.holoinsight.server.apm.common.model.query.*;
 import io.holoinsight.server.apm.common.model.specification.sw.KeyValue;
 import io.holoinsight.server.apm.common.model.specification.sw.LogEntity;
 import io.holoinsight.server.apm.common.model.specification.sw.Ref;
@@ -24,8 +12,7 @@ import io.holoinsight.server.apm.common.model.specification.sw.RefType;
 import io.holoinsight.server.apm.common.model.specification.sw.Span;
 import io.holoinsight.server.apm.common.model.specification.sw.Tag;
 import io.holoinsight.server.apm.common.model.specification.sw.Trace;
-
-import com.google.common.collect.Iterables;
+import io.holoinsight.server.query.grpc.QueryProto;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
@@ -84,6 +71,26 @@ public class ApmConvertor {
     return new TraceBrief(traceBriefProto.getTracesList().stream()
         .map(ApmConvertor::convertBasicTrace).collect(Collectors.toList()));
   }
+
+  public static QueryProto.StatisticData convertStatisticData(StatisticData statisticData) {
+    if (statisticData == null) {
+      return null;
+    }
+    QueryProto.StatisticData.Builder statisticDataBuilder = QueryProto.StatisticData.newBuilder();
+    if (statisticData.getResources() != null) {
+      statisticDataBuilder.putAllResources(statisticData.getResources());
+    }
+    if (statisticData.getDatas() != null) {
+      statisticDataBuilder.putAllDatas(statisticData.getDatas());
+    }
+    return statisticDataBuilder.build();
+  }
+
+  public static StatisticData convertStatisticData(QueryProto.StatisticData statisticDataProto) {
+    return new StatisticData(statisticDataProto.getResourcesMap(),
+        statisticDataProto.getDatasMap());
+  }
+
 
   public static QueryProto.BasicTrace convertBasicTrace(BasicTrace basicTrace) {
     return QueryProto.BasicTrace.newBuilder().addAllServiceNames(basicTrace.getServiceNames())
@@ -455,48 +462,6 @@ public class ApmConvertor {
     }
   }
 
-  public static QueryProto.BizopsEndpoint convertBizEndpoint(BizopsEndpoint endpoint) {
-    QueryProto.BizopsEndpoint.Builder builder = QueryProto.BizopsEndpoint.newBuilder();
-    builder.setService(endpoint.getService());
-    builder.setEndpoint(endpoint.getEndpoint());
-    if (endpoint.getTraceIds() != null) {
-      builder.addAllTraceIds(endpoint.getTraceIds());
-    }
-    if (endpoint.getErrorCode() != null) {
-      builder.setErrorCode(endpoint.getErrorCode());
-    }
-    if (endpoint.getRootErrorCode() != null) {
-      builder.setRootErrorCode(endpoint.getRootErrorCode());
-    }
-    if (endpoint.getStamp() != null) {
-      builder.setStamp(endpoint.getStamp());
-    }
-    if (endpoint.getSpanLayer() != null) {
-      builder.setSpanLayer(endpoint.getSpanLayer());
-    }
-    if (endpoint.getMetric() != null) {
-      builder.setMetric(convertResponseMetric(endpoint.getMetric()));
-    }
-
-    return builder.build();
-  }
-
-  public static BizopsEndpoint deConvertBizEndpoint(QueryProto.BizopsEndpoint meta) {
-    BizopsEndpoint result = new BizopsEndpoint();
-    result.setService(meta.getService());
-    result.setEndpoint(meta.getEndpoint());
-    result.setTraceIds(meta.getTraceIdsList());
-    result.setStamp(meta.getStamp());
-    result.setErrorCode(meta.getErrorCode());
-    result.setRootErrorCode(meta.getRootErrorCode());
-    result.setSpanLayer(meta.getSpanLayer());
-    if (meta.hasMetric()) {
-      result.setMetric(deConvertResponseMetric(meta.getMetric()));
-    }
-
-    return result;
-  }
-
   public static QueryProto.SlowSql convertSlowSql(SlowSql slowSql) {
     QueryProto.SlowSql.Builder builder = QueryProto.SlowSql.newBuilder();
     builder.setServiceName(slowSql.getServiceName());
@@ -519,5 +484,15 @@ public class ApmConvertor {
     result.setStartTime(slowSql.getStartTime());
 
     return result;
+  }
+
+  public static QueryProto.StatisticDataList convert(StatisticDataList statisticDataList) {
+    QueryProto.StatisticDataList.Builder builder = QueryProto.StatisticDataList.newBuilder();
+    if (!CollectionUtils.isEmpty(statisticDataList.getStatisticDataList())) {
+      for (StatisticData data : statisticDataList.getStatisticDataList()) {
+        builder.addStatisticData(convertStatisticData(data));
+      }
+    }
+    return builder.build();
   }
 }

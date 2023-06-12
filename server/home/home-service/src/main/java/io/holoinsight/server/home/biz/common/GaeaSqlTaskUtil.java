@@ -8,11 +8,19 @@ import io.holoinsight.server.home.dal.model.dto.conf.*;
 import io.holoinsight.server.home.dal.model.dto.conf.CollectMetric.AfterFilter;
 import io.holoinsight.server.home.dal.model.dto.conf.CollectMetric.Metric;
 import io.holoinsight.server.home.dal.model.dto.conf.CustomPluginConf.SplitCol;
+import io.holoinsight.server.home.dal.model.dto.conf.Translate.TranslateTransform;
 import io.holoinsight.server.registry.model.Elect;
 import io.holoinsight.server.registry.model.Elect.RefIndex;
 import io.holoinsight.server.registry.model.Elect.RefName;
+import io.holoinsight.server.registry.model.Elect.TransFormFilter;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterAppend;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterConst;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterMapping;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterRegexpReplace;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterSubstring;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterSwitch;
+import io.holoinsight.server.registry.model.Elect.TransFormFilterSwitchCase;
 import io.holoinsight.server.registry.model.Elect.Transform;
-import io.holoinsight.server.registry.model.Elect.TransformItem;
 import io.holoinsight.server.registry.model.ExecuteRule;
 import io.holoinsight.server.registry.model.From;
 import io.holoinsight.server.registry.model.From.Log;
@@ -20,6 +28,8 @@ import io.holoinsight.server.registry.model.From.Log.Multiline;
 import io.holoinsight.server.registry.model.From.Log.Parse;
 import io.holoinsight.server.registry.model.From.Log.Separator;
 import io.holoinsight.server.registry.model.GroupBy;
+import io.holoinsight.server.registry.model.GroupBy.LogAnalysis;
+import io.holoinsight.server.registry.model.GroupBy.LogAnalysisPattern;
 import io.holoinsight.server.registry.model.Output;
 import io.holoinsight.server.registry.model.Output.Gateway;
 import io.holoinsight.server.registry.model.Select;
@@ -145,9 +155,13 @@ public class GaeaSqlTaskUtil {
         regexp.setElect(new Elect());
         regexp.getElect().setType("line");
 
+        Where not = new Where();
+        not.setRegexp(regexp);
+
         Where where = new Where();
-        where.setRegexp(regexp);
-        parse.getMultiline().setMatch(where);
+        where.setNot(not);
+
+        parse.getMultiline().setWhere(where);
 
       }
 
@@ -174,18 +188,26 @@ public class GaeaSqlTaskUtil {
         } else {
           logMultiLine.setWhat("next");
         }
-        Where match = new Where();
+
         Regexp regexp = new Regexp();
         regexp.setElect(new Elect());
         regexp.getElect().setType("line");
-        match.setRegexp(regexp);
+
+        Where not = new Where();
+        not.setRegexp(regexp);
+
+        Where where = new Where();
+        where.setNot(not);
+
         regexp.setExpression(multiLine.logRegexp);
-        logMultiLine.setMatch(match);
+        logMultiLine.setWhere(where);
         fromLog.setMultiline(logMultiLine);
       }
 
       TimeParse timeParse = new TimeParse();
       timeParse.setType("auto");
+      fromLog.setTime(timeParse);
+
       if (!CollectionUtils.isEmpty(splitCols)) {
         for (CustomPluginConf.SplitCol splitCol : splitCols) {
           if ("TIME".equals(splitCol.colType)) {
@@ -209,7 +231,6 @@ public class GaeaSqlTaskUtil {
             timeParse.setElect(buildElect(splitCol.rule, logParse.splitType));
             timeParse.setType("elect");
             timeParse.setFormat("golangLayout");
-            fromLog.setTime(timeParse);
           }
         }
         fromLog.setTime(timeParse);
@@ -393,9 +414,79 @@ public class GaeaSqlTaskUtil {
     return where;
   }
 
+  public static GroupBy buildLogPatternParse(LogParse logParse) {
+    GroupBy groupBy = new GroupBy();
+    groupBy.setMaxKeys(logParse.maxKeySize);
+
+    LogPattern logPattern = logParse.pattern;
+
+    LogAnalysis logAnalysis = new LogAnalysis();
+    logAnalysis.setMaxLogLength(logPattern.getMaxLogLength());
+    logAnalysis.setMaxUnknownPatterns(logPattern.getMaxUnknownPatterns());
+    List<LogAnalysisPattern> logAnalysisPatterns = new ArrayList<>();
+    if (!CollectionUtils.isEmpty(logPattern.getLogKnownPatterns())) {
+      logPattern.getLogKnownPatterns().forEach(logKnownPattern -> {
+        if (CollectionUtils.isEmpty(logKnownPattern.values))
+          return;
+        LogAnalysisPattern logAnalysisPattern = new LogAnalysisPattern();
+        logAnalysisPattern.setName(logKnownPattern.eventName);
+        Where where = new Where();
+        Elect elect = new Elect();
+        switch (logKnownPattern.type) {
+          case leftRight:
+            Elect.LeftRight leftRight = new Elect.LeftRight();
+            leftRight.setLeft(logKnownPattern.rule.left);
+            leftRight.setLeftIndex(logKnownPattern.rule.leftIndex);
+            leftRight.setRight(logKnownPattern.rule.right);
+
+            elect.setType("leftRight");
+            elect.setLeftRight(leftRight);
+
+            Where.In in = new Where.In();
+            in.setValues(logKnownPattern.values);
+            in.setElect(elect);
+            where.setIn(in);
+            break;
+
+          case contains:
+            ContainsAny contains = new ContainsAny();
+            elect.setType("line");
+            contains.setElect(elect);
+            contains.setValues(logKnownPattern.values);
+            where.setContainsAny(contains);
+            break;
+          case regexp:
+            List<Where> orList = new ArrayList<>();
+            logKnownPattern.values.forEach(v -> {
+              Regexp regexp = new Regexp();
+              elect.setType("line");
+              regexp.setElect(elect);
+              regexp.setExpression(v);
+
+              Where or = new Where();
+              or.setRegexp(regexp);
+              orList.add(or);
+            });
+            where.setOr(orList);
+            break;
+          default:
+            break;
+        }
+        logAnalysisPattern.setWhere(where);
+        logAnalysisPatterns.add(logAnalysisPattern);
+      });
+    }
+    logAnalysis.setPatterns(logAnalysisPatterns);
+    groupBy.setLogAnalysis(logAnalysis);
+    return groupBy;
+  }
+
   public static GroupBy buildGroupBy(LogParse logParse,
       Map<String, Map<String, SplitCol>> splitColMap, CollectMetric collectMetric) {
 
+    if (logParse.checkIsPattern() && collectMetric.checkLogPattern()) {
+      return buildLogPatternParse(logParse);
+    }
     List<String> tags = collectMetric.getTags();
 
     GroupBy groupBy = new GroupBy();
@@ -444,22 +535,9 @@ public class GaeaSqlTaskUtil {
           break;
       }
 
-      if (null != rule.translate) {
-        Translate translate = rule.translate;
-        List<ColumnCalExpr> exprs = translate.exprs;
-
+      if (null != rule.translate && !CollectionUtils.isEmpty(rule.translate.transforms)) {
         Transform transform = new Transform();
-        List<TransformItem> transformItems = new ArrayList<>();
-        if (!CollectionUtils.isEmpty(exprs)) {
-          exprs.forEach(expr -> {
-            TransformItem transformItem = new TransformItem();
-            transformItem.setArg(expr.getParams());
-            transformItem.setFunc(expr.getFunc());
-            transformItems.add(transformItem);
-          });
-        }
-
-        transform.setTransforms(transformItems);
+        transform.setFilters(convertTransFormFilters(rule.translate.transforms));
         elect.setTransform(transform);
       }
 
@@ -537,26 +615,121 @@ public class GaeaSqlTaskUtil {
       default:
         break;
     }
-    if (null != rule.translate) {
-      Translate translate = rule.translate;
-      List<ColumnCalExpr> exprs = translate.exprs;
+    if (null != rule.translate && !CollectionUtils.isEmpty(rule.translate.transforms)) {
       Transform transform = new Transform();
-      List<TransformItem> transformItems = new ArrayList<>();
-      if (!CollectionUtils.isEmpty(exprs)) {
-        exprs.forEach(expr -> {
-          TransformItem transformItem = new TransformItem();
-          transformItem.setArg(expr.getParams());
-          transformItem.setFunc(expr.getFunc());
-          transformItems.add(transformItem);
-        });
-      }
-      transform.setTransforms(transformItems);
+      transform.setFilters(convertTransFormFilters(rule.translate.transforms));
       elect.setTransform(transform);
     }
     if (StringUtils.isNotEmpty(rule.defaultValue)) {
       elect.setDefaultValue(rule.defaultValue);
     }
     return elect;
+  }
+
+  private static List<TransFormFilter> convertTransFormFilters(
+      List<TranslateTransform> transforms) {
+    List<TransFormFilter> filters = new ArrayList<>();
+    transforms.forEach(transform -> {
+      TransFormFilter transFormFilter = new TransFormFilter();
+
+      switch (transform.getType().toLowerCase()) {
+        case "append":
+          if (StringUtils.isBlank(transform.getDefaultValue())) {
+            break;
+          }
+          TransFormFilterAppend append = new TransFormFilterAppend();
+          append.setValue(transform.getDefaultValue());
+          append.setAppendIfMissing(false);
+          transFormFilter.setAppendV1(append);
+          break;
+        case "substring":
+          if (StringUtils.isBlank(transform.getDefaultValue())) {
+            break;
+          }
+          String[] array = StringUtils.split(transform.getDefaultValue(), ",");
+          if (array.length < 2) {
+            break;
+          }
+          TransFormFilterSubstring substring = new TransFormFilterSubstring();
+          substring.setBegin(Integer.parseInt(array[0]));
+          substring.setEnd(Integer.parseInt(array[1]));
+          substring.setEmptyIfError(true);
+          transFormFilter.setSubstringV1(substring);
+          break;
+        case "mapping":
+          if (CollectionUtils.isEmpty(transform.getMappings())) {
+            break;
+          }
+          TransFormFilterMapping mapping = new TransFormFilterMapping();
+          mapping.setMappings(transform.getMappings());
+          mapping.setDefaultValue(transform.getDefaultValue());
+          transFormFilter.setMappingV1(mapping);
+          break;
+        case "const":
+          TransFormFilterConst aConst = new TransFormFilterConst();
+          aConst.setValue(transform.getDefaultValue());
+          transFormFilter.setConstV1(aConst);
+          break;
+        case "contains":
+        case "regexp":
+          if (CollectionUtils.isEmpty(transform.getMappings())) {
+            break;
+          }
+
+          if (transform.getMappings().size() == 1 && transform.getType().equalsIgnoreCase("regexp")
+              && StringUtils.isBlank(transform.getDefaultValue())) {
+            TransFormFilterRegexpReplace regexpReplace = new TransFormFilterRegexpReplace();
+            Map<String, String> mappings = transform.getMappings();
+            regexpReplace.setExpression(mappings.keySet().iterator().next());
+            regexpReplace.setReplacement(mappings.values().iterator().next());
+            transFormFilter.setRegexpReplaceV1(regexpReplace);
+            break;
+          }
+
+          TransFormFilterSwitch aSwitch = new TransFormFilterSwitch(); {
+          TransFormFilterConst defaultConst = new TransFormFilterConst();
+          defaultConst.setValue(transform.getDefaultValue());
+          TransFormFilter defaultFilter = new TransFormFilter();
+          defaultFilter.setConstV1(defaultConst);
+          aSwitch.setDefaultAction(defaultFilter);
+        }
+          List<TransFormFilterSwitchCase> switchCases = new ArrayList<>();
+
+          transform.getMappings().forEach((k, v) -> {
+            TransFormFilterSwitchCase switchCase = new TransFormFilterSwitchCase();
+            TransFormFilter filter = new TransFormFilter();
+
+            Where caseWhere = new Where();
+            if (transform.getType().equalsIgnoreCase("regexp")) {
+              Regexp regexp = new Regexp();
+              regexp.setExpression(k);
+              regexp.setCatchGroups(true);
+              caseWhere.setRegexp(regexp);
+              TransFormFilterRegexpReplace regexpReplace = new TransFormFilterRegexpReplace();
+              regexpReplace.setReplacement(v);
+              filter.setRegexpReplaceV1(regexpReplace);
+            } else if (transform.getType().equalsIgnoreCase("contains")) {
+              Contains contains = new Contains();
+              contains.setValue(k);
+              caseWhere.setContains(contains);
+              TransFormFilterConst vConst = new TransFormFilterConst();
+              vConst.setValue(v);
+              filter.setConstV1(vConst);
+            }
+
+            switchCase.setCaseWhere(caseWhere);
+            switchCase.setAction(filter);
+            switchCases.add(switchCase);
+          });
+
+          aSwitch.setCases(switchCases);
+          transFormFilter.setSwitchCaseV1(aSwitch);
+          break;
+      }
+
+      filters.add(transFormFilter);
+    });
+    return filters;
   }
 
   public static String convertTimeLayout(String time) {

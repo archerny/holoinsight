@@ -9,7 +9,6 @@ import io.holoinsight.server.meta.common.util.ConstModel;
 import io.holoinsight.server.meta.facade.model.MetaType;
 import io.holoinsight.server.meta.common.model.QueryExample;
 import io.holoinsight.server.meta.common.util.ConstPool;
-import io.holoinsight.server.meta.proto.table.TableDataResponse;
 import io.holoinsight.server.common.J;
 import io.holoinsight.server.meta.facade.model.ClientException;
 import io.holoinsight.server.meta.proto.data.BatchDeleteByPkRequest;
@@ -20,16 +19,9 @@ import io.holoinsight.server.meta.proto.data.DeleteDataByExampleRequest;
 import io.holoinsight.server.meta.proto.data.InsertOrUpdateRequest;
 import io.holoinsight.server.meta.proto.data.QueryDataByExampleRequest;
 import io.holoinsight.server.meta.proto.data.QueryDataByTableRequest;
+import io.holoinsight.server.meta.proto.data.QueryDataByTableRowsRequest;
 import io.holoinsight.server.meta.proto.data.QueryDataResponse;
 import io.holoinsight.server.meta.proto.data.UpdateDataByExampleRequest;
-import io.holoinsight.server.meta.proto.table.CreateIndexKeyRequest;
-import io.holoinsight.server.meta.proto.table.CreateTableRequest;
-import io.holoinsight.server.meta.proto.table.DeleteIndexKeyRequest;
-import io.holoinsight.server.meta.proto.table.DeleteTableRequest;
-import io.holoinsight.server.meta.proto.table.TableBaseResponse;
-import io.holoinsight.server.meta.proto.table.TableHello;
-import io.holoinsight.server.meta.proto.table.TableServiceGrpc;
-import com.google.gson.reflect.TypeToken;
 import io.grpc.ManagedChannel;
 import lombok.Getter;
 import lombok.Setter;
@@ -53,8 +45,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Setter
 @Getter
-public class DimCookie
-    implements TableClientService, DataClientService, AgentHeartBeatService, Serializable {
+public class DimCookie implements DataClientService, AgentHeartBeatService, Serializable {
   private static final Logger log = LoggerFactory.getLogger(DimCookie.class);
 
   private static final long serialVersionUID = -3873469504228090189L;
@@ -93,22 +84,6 @@ public class DimCookie
     }
   }
 
-  public boolean tableHeartBeat() {
-    try {
-      TableHello tableHello =
-          TableServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS)
-              .heartBeat(TableHello.newBuilder().setFromApp(clientService.getCurrentApp())
-                  .setFromIp(clientService.getLocalIp()).build());
-      updateLastAvailableTime();
-      log.info("table cookie health check success, server={} : {}.", getServer(),
-          tableHello.getCount());
-      return true;
-    } catch (Exception e) {
-      log.error("table cookie health check fail, server={}.", getServer(), e);
-      this.setExpired(true);
-      return false;
-    }
-  }
 
   public boolean dataHeartBeat() {
     try {
@@ -140,77 +115,6 @@ public class DimCookie
   }
 
   @Override
-  public void createTable(String tableName) {
-    CreateTableRequest createTableRequest = CreateTableRequest.newBuilder().setTableName(tableName)
-        .setFromApp(clientService.getCurrentApp()).setFromIp(clientService.getLocalIp()).build();
-    TableBaseResponse tableBaseResponse = TableServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_0, TimeUnit.MILLISECONDS)
-        .createTable(createTableRequest);
-    if (!tableBaseResponse.getSuccess()) {
-      throw new ClientException("Fail to create dimTable %s with error: %s", tableName,
-          tableBaseResponse.getErrMsg());
-    }
-  }
-
-  @Override
-  public void deleteTable(String tableName) {
-    DeleteTableRequest deleteTableRequest = DeleteTableRequest.newBuilder().setTableName(tableName)
-        .setFromApp(clientService.getCurrentApp()).setFromIp(clientService.getLocalIp()).build();
-    TableBaseResponse tableBaseResponse = TableServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_0, TimeUnit.MILLISECONDS)
-        .deleteTable(deleteTableRequest);
-    if (!tableBaseResponse.getSuccess()) {
-      throw new ClientException("Fail to delete dimTable %s with error: %s", tableName,
-          tableBaseResponse.getErrMsg());
-    }
-  }
-
-  @Override
-  public void createIndex(String tableName, String indexKey, Boolean asc) {
-    CreateIndexKeyRequest createIndexKeyRequest = CreateIndexKeyRequest.newBuilder()
-        .setTableName(tableName).setIndexKey(indexKey).setAsc(asc)
-        .setFromApp(clientService.getCurrentApp()).setFromIp(clientService.getLocalIp()).build();
-    TableBaseResponse response = TableServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_0, TimeUnit.MILLISECONDS)
-        .createIndexKey(createIndexKeyRequest);
-    if (!response.getSuccess()) {
-      throw new ClientException("Fail to create index %s for table %s with error: %s", indexKey,
-          tableName, response.getErrMsg());
-    }
-  }
-
-  @Override
-  public void deleteIndex(String tableName, String indexKey) {
-    DeleteIndexKeyRequest deleteIndexKeyRequest = DeleteIndexKeyRequest.newBuilder()
-        .setTableName(tableName).setIndexKey(indexKey).setFromApp(clientService.getCurrentApp())
-        .setFromIp(clientService.getLocalIp()).build();
-    TableBaseResponse response = TableServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_0, TimeUnit.MILLISECONDS)
-        .deleteIndexKey(deleteIndexKeyRequest);
-    if (!response.getSuccess()) {
-      throw new ClientException("Fail to delete index %s for table %s with error: %s", indexKey,
-          tableName, response.getErrMsg());
-    }
-  }
-
-  @Override
-  public List<Object> getIndexInfo(String tableName) {
-    CreateIndexKeyRequest createIndexKeyRequest = CreateIndexKeyRequest.newBuilder()
-        .setTableName(tableName).setFromApp(clientService.getCurrentApp())
-        .setFromIp(clientService.getLocalIp()).build();
-    TableDataResponse response = TableServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_0, TimeUnit.MILLISECONDS)
-        .getIndexInfo(createIndexKeyRequest);
-    if (!response.getSuccess()) {
-      throw new ClientException("Fail to get index info for table %s with error: %s", tableName,
-          response.getErrMsg());
-    }
-
-    String batchRowsJson = response.getRowsJson();
-    return J.fromJson(batchRowsJson, (new TypeToken<List<Object>>() {}).getType());
-  }
-
-  @Override
   public void insertOrUpdate(String tableName, List<Map<String, Object>> rows) {
     if (rows.size() > ConstPool.GRPC_INSERT_MAX_SIZE) {
       throw new IllegalArgumentException(
@@ -226,46 +130,6 @@ public class DimCookie
         .insertOrUpdate(insertOrUpdateRequest);
     if (!dataBaseResponse.getSuccess()) {
       throw new ClientException("execute insertOrUpdate for dimTable[%s] fail : %s. ", tableName,
-          dataBaseResponse.getErrMsg());
-    }
-  }
-
-  @Override
-  public void insert(String tableName, List<Map<String, Object>> rows) {
-    if (rows.size() > ConstPool.GRPC_INSERT_MAX_SIZE) {
-      throw new IllegalArgumentException(
-          String.format("insert [%s] records fail, max allow size is [%s] !", rows.size(),
-              ConstPool.GRPC_INSERT_MAX_SIZE));
-    }
-    String rowsJson = J.toJson(rows);
-    InsertOrUpdateRequest insertOrUpdateRequest = InsertOrUpdateRequest.newBuilder()
-        .setTableName(tableName).setRowsJson(rowsJson).setFromApp(clientService.getCurrentApp())
-        .setFromIp(clientService.getLocalIp()).build();
-    DataBaseResponse dataBaseResponse = DataServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_1, TimeUnit.MILLISECONDS)
-        .insert(insertOrUpdateRequest);
-    if (!dataBaseResponse.getSuccess()) {
-      throw new ClientException("execute insert for dimTable[%s] fail : %s. ", tableName,
-          dataBaseResponse.getErrMsg());
-    }
-  }
-
-  @Override
-  public void update(String tableName, List<Map<String, Object>> rows) {
-    if (rows.size() > ConstPool.GRPC_UPDATE_MAX_SIZE) {
-      throw new IllegalArgumentException(
-          String.format("update [%s] records fail, max allow size is [%s] !", rows.size(),
-              ConstPool.GRPC_UPDATE_MAX_SIZE));
-    }
-    String rowsJson = J.toJson(rows);
-    InsertOrUpdateRequest insertOrUpdateRequest = InsertOrUpdateRequest.newBuilder()
-        .setTableName(tableName).setRowsJson(rowsJson).setFromApp(clientService.getCurrentApp())
-        .setFromIp(clientService.getLocalIp()).build();
-    DataBaseResponse dataBaseResponse = DataServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_1, TimeUnit.MILLISECONDS)
-        .update(insertOrUpdateRequest);
-    if (!dataBaseResponse.getSuccess()) {
-      throw new ClientException("execute update for dimTable[%s] fail : %s. ", tableName,
           dataBaseResponse.getErrMsg());
     }
   }
@@ -309,6 +173,28 @@ public class DimCookie
   }
 
   @Override
+  public List<Map<String, Object>> queryAll(String tableName, List<String> rowKeys) {
+    QueryDataByTableRowsRequest queryDataByTableRowsRequest = QueryDataByTableRowsRequest
+        .newBuilder().setTableName(tableName).setPkRows(J.toJson(rowKeys))
+        .setFromApp(clientService.getCurrentApp()).setFromIp(clientService.getLocalIp()).build();
+
+    List<Map<String, Object>> rows = new ArrayList<>();
+
+    Iterator<QueryDataResponse> responseIterator = DataServiceGrpc.newBlockingStub(channel)
+        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_2, TimeUnit.MILLISECONDS)
+        .queryDataByTableRowsStream(queryDataByTableRowsRequest);
+
+    while (responseIterator.hasNext()) {
+      QueryDataResponse response = responseIterator.next();
+      String batchRowsJson = response.getRowsJson();
+      List<Map<String, Object>> batchRows = J.toMapList(batchRowsJson);
+      rows.addAll(batchRows);
+    }
+
+    return rows;
+  }
+
+  @Override
   public void deleteByExample(String tableName, QueryExample example) {
     String exampleJson = J.toJson(example);
     DeleteDataByExampleRequest deleteDataByExampleRequest = DeleteDataByExampleRequest.newBuilder()
@@ -319,22 +205,6 @@ public class DimCookie
         .deleteByExample(deleteDataByExampleRequest);
     if (!dataBaseResponse.getSuccess()) {
       throw new ClientException("execute deleteByExample for dimTable[%s] fail : %s. ", tableName,
-          dataBaseResponse.getErrMsg());
-    }
-  }
-
-  @Override
-  public void updateByExample(String tableName, QueryExample example, Map<String, Object> row) {
-    String exampleJson = J.toJson(example);
-    UpdateDataByExampleRequest updateDataByExampleRequest =
-        UpdateDataByExampleRequest.newBuilder().setTableName(tableName).setExampleJson(exampleJson)
-            .setFromApp(clientService.getCurrentApp()).setRowJson(J.toJson(row))
-            .setFromIp(clientService.getLocalIp()).build();
-    DataBaseResponse dataBaseResponse = DataServiceGrpc.newBlockingStub(channel)
-        .withDeadlineAfter(ConstPool.GRPC_WITH_DEADLINE_AFTER_MS_1, TimeUnit.MILLISECONDS)
-        .updateByExample(updateDataByExampleRequest);
-    if (!dataBaseResponse.getSuccess()) {
-      throw new ClientException("execute updateByExample for dimTable[%s] fail : %s. ", tableName,
           dataBaseResponse.getErrMsg());
     }
   }

@@ -61,8 +61,7 @@ public class LogMonitoring_1_log_IT extends BaseIT {
   @Test
   public void test_wait_log_monitoring_metric1() {
     await("Test querying log monitoring metrics") //
-        .atMost(Duration.ofMinutes(10)) //
-        .untilAsserted(() -> {
+        .untilNoException(() -> {
           long end = System.currentTimeMillis() / 60000 * 60000;
           long start = end - 60000;
 
@@ -93,7 +92,7 @@ public class LogMonitoring_1_log_IT extends BaseIT {
               .get("/webapi/v1/query/schema") //
               .then() //
               .isSuccess() //
-              .body("data.tags", hasItems("app", "hostname", "ip", "host", "level")); //
+              .body("data.tags", hasItems("app", "hostname", "ip", "level")); //
 
         });
   }
@@ -106,8 +105,8 @@ public class LogMonitoring_1_log_IT extends BaseIT {
   @Test
   public void test_wait_log_monitoring_metric2() {
     await("Test querying log monitoring metrics") //
-        .atMost(Duration.ofMinutes(10)) //
-        .untilAsserted(() -> {
+        .atMost(Duration.ofMinutes(1)) //
+        .untilNoException(() -> {
           long end = System.currentTimeMillis() / 60000 * 60000;
           long start = end - 60000;
 
@@ -134,7 +133,7 @@ public class LogMonitoring_1_log_IT extends BaseIT {
               .get("/webapi/v1/query/schema") //
               .then() //
               .isSuccess() //
-              .body("data.tags", hasItems("app", "hostname", "ip", "host", "biz")); //
+              .body("data.tags", hasItems("app", "hostname", "ip", "biz")); //
 
         });
   }

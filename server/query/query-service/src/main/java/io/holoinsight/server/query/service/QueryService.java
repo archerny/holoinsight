@@ -5,6 +5,8 @@ package io.holoinsight.server.query.service;
 
 import io.holoinsight.server.query.grpc.QueryProto;
 
+import java.util.List;
+
 /**
  * @author xiangwanpeng
  * @version : QueryService.java, v 0.1 2022年04月22日 2:37 PM xiangwanpeng Exp $
@@ -31,6 +33,11 @@ public interface QueryService {
 
   QueryProto.Trace queryTrace(QueryProto.QueryTraceRequest request) throws QueryException;
 
+  QueryProto.StatisticData billingTrace(QueryProto.QueryTraceRequest request) throws QueryException;
+
+  QueryProto.StatisticDataList statisticTrace(QueryProto.StatisticRequest request)
+      throws QueryException;
+
   QueryProto.QueryMetaResponse queryServiceList(QueryProto.QueryMetaRequest request)
       throws QueryException;
 
@@ -47,12 +54,6 @@ public interface QueryService {
       throws QueryException;
 
   QueryProto.Topology queryTopology(QueryProto.QueryTopologyRequest request) throws QueryException;
-
-  QueryProto.BizopsEndpoints queryBizEndpointList(QueryProto.QueryMetaRequest request)
-      throws QueryException;
-
-  QueryProto.BizopsEndpoints queryBizErrorCodeList(QueryProto.QueryMetaRequest request)
-      throws QueryException;
 
   QueryProto.QuerySlowSqlResponse querySlowSqlList(QueryProto.QueryMetaRequest request)
       throws QueryException;

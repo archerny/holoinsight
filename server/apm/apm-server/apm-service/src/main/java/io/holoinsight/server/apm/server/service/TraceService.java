@@ -22,9 +22,10 @@ public interface TraceService {
       final QueryOrder queryOrder, final Pagination paging, final long start, final long end,
       final List<Tag> tags) throws Exception;
 
-  Trace queryTrace(final String traceId) throws Exception;
+  Trace queryTrace(final String tenant, final long start, final long end, final String traceId)
+      throws Exception;
 
   void insertSpans(final List<SpanDO> spans) throws Exception;
 
-  List<StatisticData> statisticTrace(long startTime, long endTime) throws Exception;
+
 }

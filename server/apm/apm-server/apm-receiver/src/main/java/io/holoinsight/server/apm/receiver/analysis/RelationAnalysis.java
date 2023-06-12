@@ -13,10 +13,10 @@ import io.holoinsight.server.apm.common.utils.TimeUtils;
 import io.holoinsight.server.apm.engine.model.NetworkAddressMappingDO;
 import io.holoinsight.server.apm.engine.model.SlowSqlDO;
 import io.holoinsight.server.apm.grpc.trace.RefType;
-import io.holoinsight.server.apm.receiver.builder.RelationBuilder;
-import io.holoinsight.server.apm.receiver.common.PublicAttr;
+import io.holoinsight.server.apm.receiver.builder.RPCTrafficSourceBuilder;
+import io.holoinsight.server.apm.receiver.common.IPublicAttr;
 import io.holoinsight.server.apm.receiver.common.TransformAttr;
-import io.holoinsight.server.apm.server.cache.NetworkAddressMappingCache;
+import io.holoinsight.server.apm.server.cache.NetworkAddressAliasCache;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.KeyValue;
 import io.opentelemetry.proto.trace.v1.Span;
@@ -24,23 +24,29 @@ import io.opentelemetry.semconv.resource.attributes.ResourceAttributes;
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@Service
 @Slf4j
 public class RelationAnalysis {
 
   @Autowired
-  private NetworkAddressMappingCache networkAddressMappingCache;
+  private NetworkAddressAliasCache networkAddressMappingCache;
 
-  public List<RelationBuilder> analysisServerSpan(Span span, Map<String, AnyValue> spanAttrMap,
-      Map<String, AnyValue> resourceAttrMap) {
-    List<RelationBuilder> callingInTraffic = new ArrayList<>(10);
+  @Autowired
+  private IPublicAttr publicAttr;
+
+  public RPCTrafficSourceBuilder relationBuilder() {
+    return new RPCTrafficSourceBuilder();
+  }
+
+  public List<RPCTrafficSourceBuilder> analysisServerSpan(Span span,
+      Map<String, AnyValue> spanAttrMap, Map<String, AnyValue> resourceAttrMap) {
+    List<RPCTrafficSourceBuilder> callingInTraffic = new ArrayList<>(10);
 
     String serviceName =
         resourceAttrMap.get(ResourceAttributes.SERVICE_NAME.getKey()).getStringValue();
@@ -49,7 +55,7 @@ public class RelationAnalysis {
 
     if (span.getLinksCount() > 0) {
       for (Span.Link link : span.getLinksList()) {
-        RelationBuilder sourceBuilder = new RelationBuilder();
+        RPCTrafficSourceBuilder sourceBuilder = relationBuilder();
 
         String networkAddressUsedAtPeer = null;
         String parentServiceName = null;
@@ -86,11 +92,11 @@ public class RelationAnalysis {
         sourceBuilder.setDestServiceName(serviceName);
         sourceBuilder.setDestLayer(Layer.GENERAL);
         sourceBuilder.setDetectPoint(DetectPoint.SERVER);
-        PublicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap);
-        callingInTraffic.add(sourceBuilder);
+        callingInTraffic
+            .add(publicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap));
       }
     } else {
-      RelationBuilder sourceBuilder = new RelationBuilder();
+      RPCTrafficSourceBuilder sourceBuilder = relationBuilder();
       sourceBuilder.setSourceServiceName(Const.USER_SERVICE_NAME);
       sourceBuilder.setSourceServiceInstanceName(Const.USER_INSTANCE_NAME);
       sourceBuilder.setSourceEndpointName(Const.USER_ENDPOINT_NAME);
@@ -101,22 +107,23 @@ public class RelationAnalysis {
       sourceBuilder.setDestEndpointName(span.getName());
       sourceBuilder.setDetectPoint(DetectPoint.SERVER);
 
-      PublicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap);
-      callingInTraffic.add(sourceBuilder);
+      callingInTraffic
+          .add(publicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap));
     }
 
     return callingInTraffic;
   }
 
-  public List<RelationBuilder> analysisClientSpan(Span span, Map<String, AnyValue> spanAttrMap,
-      Map<String, AnyValue> resourceAttrMap, Map<String, String> endpointMap) {
-    List<RelationBuilder> callingOutTraffic = new ArrayList<>(10);
-    RelationBuilder sourceBuilder = new RelationBuilder();
+  public List<RPCTrafficSourceBuilder> analysisClientSpan(Span span,
+      Map<String, AnyValue> spanAttrMap, Map<String, AnyValue> resourceAttrMap,
+      Map<String, String> endpointMap) {
+    List<RPCTrafficSourceBuilder> callingOutTraffic = new ArrayList<>(10);
+    RPCTrafficSourceBuilder sourceBuilder = relationBuilder();
 
     AnyValue peerName = spanAttrMap.get(SemanticAttributes.NET_PEER_NAME.getKey());
     AnyValue peerPort = spanAttrMap.get(SemanticAttributes.NET_PEER_PORT.getKey());
 
-    if (peerName == null && peerPort == null) {
+    if (peerName == null || StringUtils.isEmpty(peerName.getStringValue())) {
       return callingOutTraffic;
     }
 
@@ -149,8 +156,8 @@ public class RelationAnalysis {
     }
 
     sourceBuilder.setDetectPoint(DetectPoint.CLIENT);
-    PublicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap);
-    callingOutTraffic.add(sourceBuilder);
+    callingOutTraffic
+        .add(publicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap));
 
     return callingOutTraffic;
   }
@@ -168,7 +175,7 @@ public class RelationAnalysis {
     long latency = TimeUtils.unixNano2MS(span.getEndTimeUnixNano())
         - TimeUtils.unixNano2MS(span.getStartTimeUnixNano());
 
-    if ((peerName == null && peerPort == null) || statement == null
+    if (peerName == null || StringUtils.isEmpty(peerName.getStringValue()) || statement == null
         || latency < Const.SLOW_SQL_THRESHOLD) {
       return result;
     }
@@ -182,7 +189,7 @@ public class RelationAnalysis {
     slowSqlEsDO.setLatency((int) latency);
     slowSqlEsDO.setStartTime(TimeUtils.unixNano2MS(span.getStartTimeUnixNano()));
     slowSqlEsDO.setTimeBucket(
-        TimeBucket.getRecordTimeBucket(TimeUtils.unixNano2MS(span.getStartTimeUnixNano())));
+        TimeBucket.getRecordTimeBucket(TimeUtils.unixNano2MS(span.getEndTimeUnixNano())));
     slowSqlEsDO.setTraceId(Hex.encodeHexString(span.getTraceId().toByteArray()));
     slowSqlEsDO.setStatement(statement.getStringValue());
 
@@ -190,14 +197,14 @@ public class RelationAnalysis {
     return result;
   }
 
-  public List<RelationBuilder> analysisInternalSpan(Span span, Map<String, AnyValue> spanAttrMap,
-      Map<String, AnyValue> resourceAttrMap) {
-    List<RelationBuilder> result = new ArrayList<>(10);
+  public List<RPCTrafficSourceBuilder> analysisInternalSpan(Span span,
+      Map<String, AnyValue> spanAttrMap, Map<String, AnyValue> resourceAttrMap) {
+    List<RPCTrafficSourceBuilder> result = new ArrayList<>(10);
 
     if (span.getLinksCount() > 0) {
       for (int i = 0; i < span.getLinksCount(); i++) {
         Span.Link link = span.getLinks(i);
-        RelationBuilder sourceBuilder = new RelationBuilder();
+        RPCTrafficSourceBuilder sourceBuilder = relationBuilder();
 
         String serviceName =
             resourceAttrMap.get(ResourceAttributes.SERVICE_NAME.getKey()).getStringValue();
@@ -238,8 +245,7 @@ public class RelationAnalysis {
         sourceBuilder.setDestServiceName(serviceName);
         sourceBuilder.setDestLayer(Layer.GENERAL);
         sourceBuilder.setDetectPoint(DetectPoint.SERVER);
-        PublicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap);
-        result.add(sourceBuilder);
+        result.add(publicAttr.setPublicAttrs(sourceBuilder, span, spanAttrMap, resourceAttrMap));
       }
     }
 

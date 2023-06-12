@@ -203,34 +203,22 @@ public class QueryGrpcService extends QueryServiceGrpc.QueryServiceImplBase {
   }
 
   @Override
-  public void queryBizEndpointList(QueryProto.QueryMetaRequest request,
-      StreamObserver<QueryProto.BizopsEndpoints> responseObserver) {
-    try {
-      responseObserver.onNext(queryService.queryBizEndpointList(request));
-      responseObserver.onCompleted();
-    } catch (Throwable t) {
-      responseObserver.onError(
-          Status.INTERNAL.withCause(t).withDescription(t.getMessage()).asRuntimeException());
-    }
-  }
-
-  @Override
-  public void queryBizErrorCodeList(QueryProto.QueryMetaRequest request,
-      StreamObserver<QueryProto.BizopsEndpoints> responseObserver) {
-    try {
-      responseObserver.onNext(queryService.queryBizErrorCodeList(request));
-      responseObserver.onCompleted();
-    } catch (Throwable t) {
-      responseObserver.onError(
-          Status.INTERNAL.withCause(t).withDescription(t.getMessage()).asRuntimeException());
-    }
-  }
-
-  @Override
   public void querySlowSqlList(QueryProto.QueryMetaRequest request,
       StreamObserver<QueryProto.QuerySlowSqlResponse> responseObserver) {
     try {
       responseObserver.onNext(queryService.querySlowSqlList(request));
+      responseObserver.onCompleted();
+    } catch (Throwable t) {
+      responseObserver.onError(
+          Status.INTERNAL.withCause(t).withDescription(t.getMessage()).asRuntimeException());
+    }
+  }
+
+  @Override
+  public void statisticTrace(QueryProto.StatisticRequest request,
+      StreamObserver<QueryProto.StatisticDataList> responseObserver) {
+    try {
+      responseObserver.onNext(queryService.statisticTrace(request));
       responseObserver.onCompleted();
     } catch (Throwable t) {
       responseObserver.onError(

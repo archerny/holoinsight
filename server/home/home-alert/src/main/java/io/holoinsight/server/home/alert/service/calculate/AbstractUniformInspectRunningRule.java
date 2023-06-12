@@ -12,17 +12,22 @@ import io.holoinsight.server.home.alert.model.function.FunctionConfigParam;
 import io.holoinsight.server.home.alert.model.function.FunctionLogic;
 import io.holoinsight.server.home.facade.DataResult;
 import io.holoinsight.server.home.facade.InspectConfig;
+import io.holoinsight.server.home.facade.PqlRule;
 import io.holoinsight.server.home.facade.Rule;
 import io.holoinsight.server.home.facade.emuns.BoolOperationEnum;
 import io.holoinsight.server.home.facade.trigger.CompareConfig;
+import io.holoinsight.server.home.facade.trigger.DataSource;
 import io.holoinsight.server.home.facade.trigger.Trigger;
 import io.holoinsight.server.home.facade.trigger.TriggerResult;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -45,6 +50,9 @@ public class AbstractUniformInspectRunningRule {
 
   ThreadPoolExecutor ruleRunner = new ThreadPoolExecutor(20, 100, 10, TimeUnit.SECONDS,
       new ArrayBlockingQueue<>(1000), r -> new Thread(r, "RuleRunner"));
+
+  @Autowired
+  private NullValueTracker nullValueTracker;
 
   public EventInfo eval(ComputeContext context) {
     long period = context.getTimestamp();
@@ -75,10 +83,46 @@ public class AbstractUniformInspectRunningRule {
       eventInfo.setEnvType(inspectConfig.getEnvType());
       eventInfo.setIsRecover(false);
       eventInfo.setUniqueId(inspectConfig.getUniqueId());
+      Map<Trigger, List<TriggerResult>> triggerMap =
+          convertFromPql(inspectConfig.getPqlRule(), period, inspectConfig);
+      eventInfo.setAlarmTriggerResults(triggerMap);
       return eventInfo;
     }
     // 恢复时这里返回null
     return null;
+  }
+
+  private Map<Trigger, List<TriggerResult>> convertFromPql(PqlRule pqlRule, long period,
+      InspectConfig inspectConfig) {
+    Trigger trigger = new Trigger();
+    trigger.setQuery(pqlRule.getPql());
+    trigger.setTriggerContent(pqlRule.getPql());
+    trigger.setTriggerTitle(pqlRule.getPql());
+    trigger.setDataResult(pqlRule.getDataResult());
+    trigger.setCompareConfigs(new ArrayList<>());
+    trigger.setAggregator(StringUtils.EMPTY);
+    trigger.setDownsample(0L);
+    DataSource dataSource = new DataSource();
+    dataSource.setMetric(pqlRule.getPql());
+    dataSource.setMetricType("pql");
+    trigger.setDatasources(Collections.singletonList(dataSource));
+
+    List<TriggerResult> resultList = new ArrayList<>();
+    for (DataResult dataResult : pqlRule.getDataResult()) {
+      TriggerResult triggerResult = new TriggerResult();
+      triggerResult.setMetric(pqlRule.getPql());
+      triggerResult.setHit(true);
+      triggerResult.setTags(dataResult.getTags());
+      if (!CollectionUtils.isEmpty(dataResult.getPoints())) {
+        triggerResult.setCurrentValue(dataResult.getPoints().get(period));
+        dataResult.getPoints().forEach(triggerResult::addValue);
+      }
+      triggerResult.setTriggerLevel(inspectConfig.getAlarmLevel());
+      resultList.add(triggerResult);
+    }
+    Map<Trigger, List<TriggerResult>> map = new HashMap<>();
+    map.put(trigger, resultList);
+    return map;
   }
 
   public EventInfo runRule(InspectConfig inspectConfig, long period) throws InterruptedException {
@@ -137,7 +181,7 @@ public class AbstractUniformInspectRunningRule {
    * @param trigger 触发
    * @return {@link TriggerResult}
    */
-  public static List<TriggerResult> apply(DataResult dataResult, ComputeInfo computeInfo,
+  public List<TriggerResult> apply(DataResult dataResult, ComputeInfo computeInfo,
       Trigger trigger) {
     FunctionLogic inspectFunction = FunctionManager.functionMap.get(trigger.getType());
     // 增加智能告警算法执行
@@ -157,6 +201,10 @@ public class AbstractUniformInspectRunningRule {
       if (ruleResult.isHit()) {
         break;
       }
+    }
+    List<Long> nullValTimes = this.nullValueTracker.hasNullValue(dataResult, functionConfigParams);
+    if (!CollectionUtils.isEmpty(nullValTimes)) {
+      this.nullValueTracker.record(dataResult, trigger, nullValTimes, computeInfo);
     }
 
     return triggerResults;

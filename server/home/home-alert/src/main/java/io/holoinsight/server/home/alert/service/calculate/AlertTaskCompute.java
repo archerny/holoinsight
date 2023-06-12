@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -55,13 +56,13 @@ public class AlertTaskCompute implements AlarmTaskExecutor<ComputeTaskPackage> {
   private AlarmDataSet alarmDataSet;
 
   @Resource
-  private AbstractUniformInspectRunningRule abstractUniformInspectRunningRule;
+  protected AbstractUniformInspectRunningRule abstractUniformInspectRunningRule;
 
   @Resource
   private AlertEventService alertEventService;
 
   @Resource
-  private AlarmHistoryMapper alertHistoryDOMapper;
+  protected AlarmHistoryMapper alertHistoryDOMapper;
 
   @Resource
   private CacheData cacheData;
@@ -81,14 +82,14 @@ public class AlertTaskCompute implements AlarmTaskExecutor<ComputeTaskPackage> {
         Map<String, InspectConfig> inspectConfigMap = cacheData.getUniqueIdMap();
         List<AlertNotify> alarmNotifies = new ArrayList<>();
         for (EventInfo eventInfo : eventLists) {
-          if (eventInfo == null || StringUtils.isEmpty(eventInfo.getUniqueId())) {
+          if (StringUtils.isEmpty(eventInfo.getUniqueId())) {
             continue;
           }
           InspectConfig inspectConfig = inspectConfigMap.get(eventInfo.getUniqueId());
           if (inspectConfig == null) {
             continue;
           }
-          alarmNotifies.add(AlertNotify.eventInfoConver(eventInfo, inspectConfig));
+          alarmNotifies.add(AlertNotify.eventInfoConvert(eventInfo, inspectConfig));
         }
         alertEventService.handleEvent(alarmNotifies);
       }
@@ -114,8 +115,8 @@ public class AlertTaskCompute implements AlarmTaskExecutor<ComputeTaskPackage> {
     }
   }
 
-  private List<EventInfo> calculate(ComputeTaskPackage computeTaskPackage) {
-    List<EventInfo> eventLists = new ArrayList<>();
+  protected List<EventInfo> calculate(ComputeTaskPackage computeTaskPackage) {
+    List<EventInfo> eventLists = new CopyOnWriteArrayList<>();
 
     if (CollectionUtils.isEmpty(computeTaskPackage.getInspectConfigs())) {
       return Collections.emptyList();
@@ -139,21 +140,26 @@ public class AlertTaskCompute implements AlarmTaskExecutor<ComputeTaskPackage> {
             ComputeContext context = new ComputeContext();
             context.setTimestamp(computeTaskPackage.getTimestamp());
             context.setInspectConfig(inspectConfig);
-            EventInfo eventList = abstractUniformInspectRunningRule.eval(context);
-            if (eventList != null) {
-              eventLists.add(eventList);
+            EventInfo eventInfo = abstractUniformInspectRunningRule.eval(context);
+            if (eventInfo != null) {
+              eventLists.add(eventInfo);
             } else if (uniqueIds.contains(inspectConfig.getUniqueId())) {
-              eventList = new EventInfo();
-              eventList.setAlarmTime(computeTaskPackage.getTimestamp());
-              eventList.setUniqueId(inspectConfig.getUniqueId());
-              eventList.setIsRecover(true);
-              eventLists.add(eventList);
-              eventList.setEnvType(inspectConfig.getEnvType());
+              eventInfo = new EventInfo();
+              eventInfo.setAlarmTime(computeTaskPackage.getTimestamp());
+              eventInfo.setUniqueId(inspectConfig.getUniqueId());
+              eventInfo.setIsRecover(true);
+              eventLists.add(eventInfo);
+              eventInfo.setEnvType(inspectConfig.getEnvType());
             }
-            LOGGER.info("{} {} {} calculate package {} ,eventList: {}",
-                computeTaskPackage.getTraceId(), inspectConfig.getTraceId(),
-                inspectConfig.getUniqueId(), G.get().toJson(inspectConfig),
-                G.get().toJson(eventList));
+            if (LOGGER.isDebugEnabled()) {
+              LOGGER.debug("{} {} {} calculate package {} ,eventList: {}",
+                  computeTaskPackage.getTraceId(), inspectConfig.getTraceId(),
+                  inspectConfig.getUniqueId(), G.get().toJson(inspectConfig),
+                  G.get().toJson(eventInfo));
+            }
+            String result = eventInfo == null ? "N" : "Y";
+            LOGGER.info("{} {} {} calculate result: {}", computeTaskPackage.getTraceId(),
+                inspectConfig.getTraceId(), inspectConfig.getUniqueId(), result);
           } finally {
             latch.countDown();
           }

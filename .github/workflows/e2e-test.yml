@@ -44,7 +44,7 @@ jobs:
       run: ./scripts/all-in-one/build.sh
     - name: Build server docker image
       run: |
-        NO_BUILD_APP=1 docker buildx build --load -t holoinsight/server:latest -f ./scripts/docker/Dockerfile .
+        nobuild=1 docker buildx build --load -t holoinsight/server:latest -f ./scripts/docker/Dockerfile .
         docker save -o holoinsight-server.tar holoinsight/server:latest
     - name: Upload server docker image
       uses: actions/upload-artifact@v3
@@ -86,6 +86,7 @@ jobs:
   e2e-test:
     runs-on: ubuntu-latest
     needs: [ e2e-test-server-image, e2e-test-warmup ]
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -109,8 +110,6 @@ jobs:
           scene: scene-default
         - test: AlertCalculateIT
           scene: scene-default
-        - test: IntegrationPluginIT
-          scene: scene-default
         - test: OpenMetricsScraperIT
           scene: scene-default
         - test: AlertWebhookIT
@@ -120,6 +119,26 @@ jobs:
         - test: AlertDingDingRobotIT
           scene: scene-default
         - test: LogMonitoring_1_log_IT
+          scene: scene-default
+        - test: AlertGroupIT
+          scene: scene-default
+        - test: CeresdbPqlMonitoringIT
+          scene: scene-default
+        - test: MetricMonitoringIT
+          scene: scene-default
+        - test: apm.ApmCallLinkIT
+          scene: scene-default
+        - test: apm.ApmTopologyIT
+          scene: scene-default
+        - test: apm.ApmCallLinkDetailIT
+          scene: scene-default
+        - test: apm.ApmAppMetricStatIT
+          scene: scene-default
+        - test: LogMonitoringMultilineIT
+          scene: scene-default
+        - test: LogMonitoringAnalysisIT
+          scene: scene-default
+        - test: AlertLogAnalysisIT
           scene: scene-default
     steps:
     - uses: actions/checkout@v3

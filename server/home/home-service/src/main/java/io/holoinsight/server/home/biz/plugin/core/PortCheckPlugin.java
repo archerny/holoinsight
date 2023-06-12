@@ -3,15 +3,18 @@
  */
 package io.holoinsight.server.home.biz.plugin.core;
 
-import io.holoinsight.server.home.biz.common.GaeaConvertUtil;
 import io.holoinsight.server.home.biz.plugin.config.PortCheckPluginConfig;
 import io.holoinsight.server.home.biz.plugin.model.PluginModel;
 import io.holoinsight.server.home.biz.plugin.model.PluginType;
+import io.holoinsight.server.home.biz.service.TenantInitService;
 import io.holoinsight.server.home.dal.model.dto.IntegrationPluginDTO;
+import io.holoinsight.server.registry.model.integration.IntegrationTransForm;
 import io.holoinsight.server.registry.model.integration.portcheck.PortCheckTask;
 import io.holoinsight.server.common.J;
 import com.google.gson.reflect.TypeToken;
 import io.holoinsight.server.registry.model.ExecuteRule;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -29,8 +32,11 @@ public class PortCheckPlugin extends AbstractLocalIntegrationPlugin<PortCheckPlu
 
   public PortCheckTask portCheckTask;
 
+  @Autowired
+  public TenantInitService tenantInitService;
+
   @Override
-  PortCheckTask buildTask() {
+  public PortCheckTask buildTask() {
     return portCheckTask;
   }
 
@@ -53,21 +59,30 @@ public class PortCheckPlugin extends AbstractLocalIntegrationPlugin<PortCheckPlu
     List<PortCheckPluginConfig> portCheckPluginConfigs = J.fromJson(J.toJson(map.get("confs")),
         new TypeToken<List<PortCheckPluginConfig>>() {}.getType());
 
+    int i = 0;
     for (PortCheckPluginConfig config : portCheckPluginConfigs) {
       PortCheckPlugin portCheckPlugin = new PortCheckPlugin();
 
       PortCheckTask portCheckTask = new PortCheckTask();
       {
         portCheckTask.port = config.port;
+        portCheckTask.ports = config.ports;
         portCheckTask.timeout = 3000L;
         portCheckTask.times = 1;
         portCheckTask.network = "tcp";
         portCheckTask.networkMode = "AGENT";
+        if (StringUtils.isNotBlank(config.getNetworkMode())) {
+          portCheckTask.networkMode = config.getNetworkMode();
+        }
 
         ExecuteRule executeRule = new ExecuteRule();
         executeRule.setType("fixedRate");
         executeRule.setFixedRate(60000);
         portCheckTask.setExecuteRule(executeRule);
+
+        IntegrationTransForm transformMap = new IntegrationTransForm();
+        transformMap.setMetricPrefix("portcheck_");
+        portCheckTask.setTransform(transformMap);
       }
 
       {
@@ -75,10 +90,11 @@ public class PortCheckPlugin extends AbstractLocalIntegrationPlugin<PortCheckPlu
         portCheckPlugin.name = integrationPluginDTO.product.toLowerCase();
         portCheckPlugin.metricName =
             String.join("_", integrationPluginDTO.product.toLowerCase(), "tcp_ping");
-        portCheckPlugin.gaeaTableName = integrationPluginDTO.name + "_" + config.port;
+        portCheckPlugin.gaeaTableName = integrationPluginDTO.name + "_" + i++;
 
-        portCheckPlugin.collectRange = GaeaConvertUtil.convertCloudMonitorRange(
-            integrationPluginDTO.getTenant() + "_server", config.getMetaLabel(), config.range);
+        portCheckPlugin.collectRange =
+            tenantInitService.getCollectMonitorRange(integrationPluginDTO.getTenant() + "_server",
+                integrationPluginDTO.getWorkspace(), config.range, config.getMetaLabel());
 
         portCheckPlugin.portCheckTask = portCheckTask;
         portCheckPlugin.collectPlugin = "dialcheck";

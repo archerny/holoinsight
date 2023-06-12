@@ -4,9 +4,10 @@
 package io.holoinsight.server.apm.engine.elasticsearch.storage.impl;
 
 import io.holoinsight.server.apm.common.constants.Const;
+import io.holoinsight.server.apm.common.utils.TimeBucket;
 import io.holoinsight.server.apm.engine.elasticsearch.utils.EsGsonUtils;
 import io.holoinsight.server.apm.engine.model.RecordDO;
-import io.holoinsight.server.apm.engine.storage.RecordStorage;
+import io.holoinsight.server.apm.engine.storage.WritableStorage;
 import io.holoinsight.server.common.springboot.ConditionalOnFeature;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
@@ -20,33 +21,41 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 @ConditionalOnFeature("trace")
 @Slf4j
-public class RecordEsStorage<T extends RecordDO> implements RecordStorage<T> {
+public class RecordEsStorage<T extends RecordDO> implements WritableStorage<T> {
 
   @Autowired
   private RestHighLevelClient esClient;
 
-  protected RestHighLevelClient esClient() {
+  protected RestHighLevelClient client() {
     return esClient;
   }
 
-  public void batchInsert(List<T> entities) throws IOException {
+  public void insert(List<T> entities) throws IOException {
+
     if (CollectionUtils.isNotEmpty(entities)) {
       BulkRequest bulkRequest = new BulkRequest();
       entities.forEach(entity -> {
-        String writeIndexName = writeIndexName(entity.indexName(), entity.getTimeBucket());
+        String writeIndexName = writeIndexName(entity);
+
         bulkRequest.add(new IndexRequest(writeIndexName).opType(DocWriteRequest.OpType.CREATE)
             .source(EsGsonUtils.esGson().toJson(entity), XContentType.JSON));
       });
-      BulkResponse bulkItemRsp = esClient().bulk(bulkRequest, RequestOptions.DEFAULT);
+      BulkResponse bulkItemRsp = client().bulk(bulkRequest, RequestOptions.DEFAULT);
+      if (bulkItemRsp.hasFailures()) {
+        throw new RuntimeException(bulkItemRsp.buildFailureMessage());
+      }
     }
   }
 
-  private static String writeIndexName(String indexName, long timeBucket) {
-    return indexName + Const.LINE + timeBucket / 1000000;
+  @Override
+  public String writeIndexName(T entity) {
+    return entity.indexName() + Const.LINE + entity.getTimeBucket() / 1000000;
   }
 
 }

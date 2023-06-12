@@ -10,9 +10,27 @@ spring:
 
 holoinsight:
   roles:
-    active: query,registry,gateway,home,meta
+    active: query,registry,gateway,home,meta,apm
   metric:
     storage:
       type: ceresdbx
+    pql:
+      remote:
+        enabled: true
+        endpoints:
+          default:
+            host: prometheus
+            port: 9090
   flyway:
     enabled: false
+  features:
+    active: trace
+  meta:
+    database: holoinsight
+  storage:
+    elasticsearch:
+      enable: true
+      hosts: es
+      port: 9200
+  security:
+    whiteHosts: server

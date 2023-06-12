@@ -5,10 +5,10 @@ package io.holoinsight.server.home.web.controller;
 
 import io.holoinsight.server.home.biz.service.DisplayMenuService;
 import io.holoinsight.server.home.biz.service.IntegrationGeneratedService;
-import io.holoinsight.server.home.biz.service.UserOpLogService;
 import io.holoinsight.server.home.common.util.MonitorException;
 import io.holoinsight.server.home.common.util.ResultCodeEnum;
 import io.holoinsight.server.home.common.util.scope.AuthTargetType;
+import io.holoinsight.server.home.common.util.scope.MonitorScope;
 import io.holoinsight.server.home.common.util.scope.PowerConstants;
 import io.holoinsight.server.home.common.util.scope.RequestContext;
 import io.holoinsight.server.home.dal.model.IntegrationGenerated;
@@ -46,110 +46,11 @@ import java.util.Set;
 public class DisplayMenuFacadeImpl extends BaseFacade {
 
   @Autowired
-  private UserOpLogService userOpLogService;
-
-  @Autowired
   private DisplayMenuService displayMenuService;
 
   @Autowired
   private IntegrationGeneratedService integrationGeneratedService;
 
-  // @PostMapping("/update")
-  // @ResponseBody
-  // @MonitorScopeAuth(targetType = AuthTargetType.TENANT, needPower = PowerConstants.EDIT)
-  // public JsonResult<Object> update(@RequestBody DisplayMenu menu) {
-  // final JsonResult<DisplayMenu> result = new JsonResult<>();
-  // facadeTemplate.manage(result, new ManageCallback() {
-  // @Override
-  // public void checkParameter() {
-  // ParaCheckUtil.checkParaNotNull(menu.id, "id");
-  // ParaCheckUtil.checkParaNotBlank(menu.type, "type");
-  // ParaCheckUtil.checkParaNotBlank(menu.config, "config");
-  // ParaCheckUtil.checkParaNotNull(menu.refId, "refId");
-  // ParaCheckUtil.checkParaNotNull(menu.getTenant(), "tenant");
-  // ParaCheckUtil.checkEquals(menu.getTenant(),
-  // RequestContext.getContext().ms.getTenant(), "tenant is illegal");
-  //
-  // DisplayMenuDTO item = displayMenuService.queryById(menu.getId(),
-  // RequestContext.getContext().ms.getTenant());
-  //
-  // if (null == item) {
-  // throw new MonitorException("cannot find record: " + menu.getId());
-  // }
-  // if (!item.getTenant().equalsIgnoreCase(menu.getTenant())) {
-  // throw new MonitorException("the tenant parameter is invalid");
-  // }
-  // }
-  //
-  // @Override
-  // public void doManage() {
-  //
-  // MonitorScope ms = RequestContext.getContext().ms;
-  // MonitorUser mu = RequestContext.getContext().mu;
-  //
-  // DisplayMenu update = new DisplayMenu();
-  //
-  // BeanUtils.copyProperties(menu, update);
-  //
-  // if (null != mu) {
-  // update.setModifier(mu.getLoginName());
-  // }
-  // if (null != ms && !StringUtils.isEmpty(ms.tenant)) {
-  // update.setTenant(ms.tenant);
-  // }
-  // update.setGmtModified(new Date());
-  // displayMenuService.updateById(update);
-  //
-  // assert mu != null;
-  // userOpLogService.append("display_menu", String.valueOf(menu.getId()), OpType.UPDATE,
-  // mu.getLoginName(), ms.getTenant(), J.toJson(menu), J.toJson(update), null,
-  // "display_menu_update");
-  // }
-  // });
-  //
-  // return JsonResult.createSuccessResult(true);
-  // }
-  //
-  // @PostMapping("/create")
-  // @ResponseBody
-  // @MonitorScopeAuth(targetType = AuthTargetType.TENANT, needPower = PowerConstants.EDIT)
-  // public JsonResult<DisplayMenu> save(@RequestBody DisplayMenu menu) {
-  // final JsonResult<DisplayMenu> result = new JsonResult<>();
-  // facadeTemplate.manage(result, new ManageCallback() {
-  // @Override
-  // public void checkParameter() {
-  // ParaCheckUtil.checkParaNotBlank(menu.type, "type");
-  // ParaCheckUtil.checkParaNotBlank(menu.config, "config");
-  // ParaCheckUtil.checkParaNotNull(menu.refId, "refId");
-  // }
-  //
-  // @Override
-  // public void doManage() {
-  // MonitorScope ms = RequestContext.getContext().ms;
-  // MonitorUser mu = RequestContext.getContext().mu;
-  // if (null != mu) {
-  // menu.setCreator(mu.getLoginName());
-  // menu.setModifier(mu.getLoginName());
-  // }
-  // if (null != ms && !StringUtils.isEmpty(ms.tenant)) {
-  // menu.setTenant(ms.tenant);
-  // }
-  // menu.setTenant(MonitorCookieUtil.getTenantOrException());
-  // menu.setGmtCreate(new Date());
-  // menu.setGmtModified(new Date());
-  // displayMenuService.save(menu);
-  // JsonResult.createSuccessResult(result, menu);
-  //
-  // assert mu != null;
-  // userOpLogService.append("display_menu", String.valueOf(menu.getId()), OpType.CREATE,
-  // mu.getLoginName(), ms.getTenant(), J.toJson(menu), null, null,
-  // "display_menu_create");
-  //
-  // }
-  // });
-  //
-  // return result;
-  // }
 
   @GetMapping(value = "/query/{id}")
   @MonitorScopeAuth(targetType = AuthTargetType.TENANT, needPower = PowerConstants.VIEW)
@@ -216,25 +117,35 @@ public class DisplayMenuFacadeImpl extends BaseFacade {
 
       @Override
       public void doManage() {
-
+        MonitorScope ms = RequestContext.getContext().ms;
         Map<String, Object> apmMenuMap = new HashMap<>();
+        DisplayMenuDTO displayMenuDTO;
         apmMenuMap.put("type", "apm");
         apmMenuMap.put("ref_id", -1);
         List<DisplayMenuDTO> byMap = displayMenuService.findByMap(apmMenuMap);
 
-        if (null == byMap) {
+        if (CollectionUtils.isEmpty(byMap)) {
           throw new MonitorException(ResultCodeEnum.CANNOT_FIND_RECORD, "can not find record");
         }
+        displayMenuDTO = byMap.get(0);
 
+        Map<String, Object> apmMenuTenantMap = new HashMap<>();
+        apmMenuMap.put("type", "apm");
+        apmMenuMap.put("ref_id", -1);
+        apmMenuMap.put("tenant", ms.getTenant());
+        List<DisplayMenuDTO> byTenantMap = displayMenuService.findByMap(apmMenuTenantMap);
+        if (!CollectionUtils.isEmpty(byTenantMap)) {
+          displayMenuDTO = byTenantMap.get(0);
+        }
         Map<String, Object> columnMap = new HashMap<>();
-        columnMap.put("tenant", RequestContext.getContext().ms.getTenant());
+        columnMap.put("tenant", ms.getTenant());
         columnMap.put("name", name);
         columnMap.put("deleted", 0);
 
         List<IntegrationGenerated> generateds = integrationGeneratedService.listByMap(columnMap);
 
         if (CollectionUtils.isEmpty(generateds)) {
-          JsonResult.createSuccessResult(result, byMap.get(0).getConfig());
+          JsonResult.createSuccessResult(result, displayMenuDTO.getConfig());
           return;
         }
 
@@ -245,11 +156,12 @@ public class DisplayMenuFacadeImpl extends BaseFacade {
         });
 
         try {
-          List<DisplayMenuConfig> menuConfigs = convertApmMenu(byMap.get(0).getConfig(), itemSets);
+          List<DisplayMenuConfig> menuConfigs =
+              convertApmMenu(displayMenuDTO.getConfig(), itemSets);
           JsonResult.createSuccessResult(result, menuConfigs);
         } catch (Exception e) {
           log.error("convertApmMenu error", e);
-          JsonResult.createSuccessResult(result, byMap.get(0).getConfig());
+          JsonResult.createSuccessResult(result, displayMenuDTO.getConfig());
         }
 
       }
@@ -292,31 +204,4 @@ public class DisplayMenuFacadeImpl extends BaseFacade {
 
     return menuConfigs;
   }
-
-  // @DeleteMapping(value = "/delete/{id}")
-  // @MonitorScopeAuth(targetType = AuthTargetType.TENANT, needPower = PowerConstants.EDIT)
-  // public JsonResult<Object> deleteById(@PathVariable("id") Long id) {
-  // final JsonResult<Object> result = new JsonResult<>();
-  // facadeTemplate.manage(result, new ManageCallback() {
-  // @Override
-  // public void checkParameter() {
-  // ParaCheckUtil.checkParaNotNull(id, "id");
-  // }
-  //
-  // @Override
-  // public void doManage() {
-  //
-  // DisplayMenuDTO byId = displayMenuService.queryById(id,
-  // RequestContext.getContext().ms.getTenant());
-  // displayMenuService.removeById(id);
-  // JsonResult.createSuccessResult(result, null);
-  // userOpLogService.append("display_menu", String.valueOf(byId.getId()), OpType.DELETE,
-  // RequestContext.getContext().mu.getLoginName(),
-  // RequestContext.getContext().ms.getTenant(), J.toJson(byId), null, null,
-  // "display_menu_delete");
-  //
-  // }
-  // });
-  // return result;
-  // }
 }

@@ -18,6 +18,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -58,77 +59,45 @@ public class AIAlarmLoadData implements AlarmLoadData {
     return dataResults;
   }
 
-  private QueryProto.QueryResponse queryTags(ComputeTaskPackage computeTask, InspectConfig e,
-      Trigger trigger) {
-    QueryProto.QueryResponse response = null;
-    QueryProto.QueryRequest request = null;
-    try {
-      List<QueryProto.Datasource> datasources = new ArrayList<>();
-      for (DataSource dataSource : trigger.getDatasources()) {
-        // 获取检测那一分钟的tags
-        long start = computeTask.getTimestamp() - PeriodType.MINUTE.intervalMillis();
-        long end = computeTask.getTimestamp();
-
-        QueryProto.Datasource.Builder builder = QueryProto.Datasource.newBuilder()
-            .setName(dataSource.getName()).setStart(start).setEnd(end)
-            .setMetric(dataSource.getMetric()).addAllFilters(filterConvert(dataSource.getFilters()))
-            .setAggregator(dataSource.getAggregator());
-
-        if (dataSource.getGroupBy() != null) {
-          builder.addAllGroupBy(dataSource.getGroupBy());
-        }
-        if (dataSource.getDownsample() != null) {
-          builder.setDownsample(dataSource.getDownsample());
-        }
-        QueryProto.Datasource queryDatasource = builder.build();
-        datasources.add(queryDatasource);
-
-      }
-
-      request = QueryProto.QueryRequest.newBuilder().setTenant(e.getTenant())
-          .setQuery(trigger.getQuery()).addAllDatasources(datasources).build();
-
-
-      response = queryClientService.queryTag(request);
-      LOGGER.debug("QueryTags Success Request:{} Response:{}", G.get().toJson(request),
-          G.get().toJson(response));
-      return response;
-    } catch (Exception exception) {
-      LOGGER.error("QueryTags Exception Request:{} Response:{}", G.get().toJson(request),
-          G.get().toJson(response), exception);
-    }
-    return null;
-  }
-
   private QueryProto.QueryResponse queryDataCount(ComputeTaskPackage computeTask,
       InspectConfig inspectConfig, Trigger trigger) {
     QueryProto.QueryResponse response = null;
     try {
       long start = computeTask.getTimestamp() - 4L * PeriodType.HOUR.intervalMillis();
-      long end = computeTask.getTimestamp();
+      long end = computeTask.getTimestamp() + PeriodType.MINUTE.intervalMillis();
       QueryProto.QueryResponse response1 = getData(inspectConfig, trigger, start, end);
-      if (response1 == null) {
+      if (response1 == null || CollectionUtils.isEmpty(response1.getResultsList())) {
         return null;
       }
       long yesterdayPeriod = computeTask.getTimestamp() - PeriodType.DAY.intervalMillis();
       long yesterdayStart = yesterdayPeriod - 4L * PeriodType.HOUR.intervalMillis();
-      long yesterdayEnd = yesterdayPeriod + PeriodType.HOUR.intervalMillis();
+      long yesterdayEnd =
+          yesterdayPeriod + PeriodType.HOUR.intervalMillis() + PeriodType.MINUTE.intervalMillis();
       QueryProto.QueryResponse response2 =
           getData(inspectConfig, trigger, yesterdayStart, yesterdayEnd);
-      if (response2 == null) {
-        return null;
-      }
+      // If only have data for the day
       QueryProto.QueryResponse.Builder reponseBuilder = QueryProto.QueryResponse.newBuilder();
-      response1.getResultsList().forEach(result1 -> response2.getResultsList().forEach(result2 -> {
-        if (result2.getTagsMap().equals(result1.getTagsMap())) {
+      if (response2 == null || CollectionUtils.isEmpty(response2.getResultsList())) {
+        response1.getResultsList().forEach(result1 -> {
           List<QueryProto.Point> points = new ArrayList<>();
           points.addAll(result1.getPointsList());
-          points.addAll(result2.getPointsList());
           QueryProto.Result result = QueryProto.Result.newBuilder().addAllPoints(points)
               .setMetric(result1.getMetric()).putAllTags(result1.getTagsMap()).build();
           reponseBuilder.addResults(result);
-        }
-      }));
+        });
+      } else {
+        response1.getResultsList()
+            .forEach(result1 -> response2.getResultsList().forEach(result2 -> {
+              if (result2.getTagsMap().equals(result1.getTagsMap())) {
+                List<QueryProto.Point> points = new ArrayList<>();
+                points.addAll(result1.getPointsList());
+                points.addAll(result2.getPointsList());
+                QueryProto.Result result = QueryProto.Result.newBuilder().addAllPoints(points)
+                    .setMetric(result1.getMetric()).putAllTags(result1.getTagsMap()).build();
+                reponseBuilder.addResults(result);
+              }
+            }));
+      }
       response = reponseBuilder.build();
     } catch (Exception e) {
       LOGGER.error("QueryData Exception", e);
@@ -166,8 +135,10 @@ public class AIAlarmLoadData implements AlarmLoadData {
       request = QueryProto.QueryRequest.newBuilder().setTenant(inspectConfig.getTenant())
           .setQuery(trigger.getQuery()).addAllDatasources(datasources).build();
       response = queryClientService.queryData(request);
-      LOGGER.debug("QueryData Success Request:{} Response:{}", G.get().toJson(request),
-          G.get().toJson(response));
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("{} QueryData Success Request:{} Response:{}", inspectConfig.getTraceId(),
+            G.get().toJson(request), G.get().toJson(response));
+      }
     } catch (Exception e) {
       LOGGER.error("QueryData Exception Request:{} Response:{}", G.get().toJson(request),
           G.get().toJson(response), e);

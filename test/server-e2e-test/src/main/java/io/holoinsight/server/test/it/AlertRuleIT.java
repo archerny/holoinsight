@@ -5,12 +5,14 @@ package io.holoinsight.server.test.it;
 
 import io.holoinsight.server.common.J;
 import io.holoinsight.server.home.facade.AlarmHistoryDTO;
+import io.holoinsight.server.home.facade.AlarmHistoryDetailDTO;
 import io.holoinsight.server.home.facade.AlarmRuleDTO;
 import io.holoinsight.server.home.facade.Rule;
 import io.holoinsight.server.home.facade.TimeFilter;
 import io.holoinsight.server.home.facade.emuns.BoolOperationEnum;
 import io.holoinsight.server.home.facade.emuns.CompareOperationEnum;
 import io.holoinsight.server.home.facade.emuns.FunctionEnum;
+import io.holoinsight.server.home.facade.emuns.PeriodType;
 import io.holoinsight.server.home.facade.emuns.TimeFilterEnum;
 import io.holoinsight.server.home.facade.page.MonitorPageRequest;
 import io.holoinsight.server.home.facade.trigger.CompareConfig;
@@ -26,6 +28,7 @@ import org.hamcrest.core.Every;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.CollectionUtils;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -134,6 +137,53 @@ public class AlertRuleIT extends BaseIT {
 
   @Order(3)
   @Test
+  public void test_check_rule_name() {
+    String invalidRuleName =
+        RandomStringUtils.randomAlphabetic(10) + "<a href=http://www.baidu.com>点击查看详情</a>";
+    AlarmRuleDTO alarmRuleDTO = new AlarmRuleDTO();
+    alarmRuleDTO.setRuleName(invalidRuleName);
+    alarmRuleDTO.setSourceType("apm_holoinsight");
+    alarmRuleDTO.setAlarmLevel("5");
+    alarmRuleDTO.setRuleDescribe("Invalid rule name");
+    alarmRuleDTO.setStatus((byte) 1);
+    alarmRuleDTO.setIsMerge((byte) 0);
+    alarmRuleDTO.setRecover((byte) 0);
+    alarmRuleDTO.setRuleType("rule");
+    alarmRuleDTO.setTimeFilter(buildTimeFilter());
+    alarmRuleDTO.setRule(buildRule());
+
+    // Create folder
+    given() //
+        .body(new JSONObject(J.toMap(J.toJson(alarmRuleDTO)))) //
+        .when() //
+        .post("/webapi/alarmRule/create") //
+        .then() //
+        .body("success", IS_FALSE) //
+        .body("message", eq("invalid ruleName"));
+
+    invalidRuleName = name + "<a href=http://www.baidu.com>点击查看详情</a>";
+    alarmRuleDTO = new AlarmRuleDTO();
+    alarmRuleDTO.setRuleName(invalidRuleName);
+    alarmRuleDTO.setId(id.longValue());
+    alarmRuleDTO.setTenant(tenant);
+    given() //
+        .body(new JSONObject(J.toMap(J.toJson(alarmRuleDTO)))) //
+        .when() //
+        .post("/webapi/alarmRule/update") //
+        .then() //
+        .body("success", IS_FALSE) //
+        .body("message", eq("invalid ruleName"));
+    Response response = queryAlertRule.get();
+    System.out.println(response.body().print());
+    response //
+        .then() //
+        .body("success", IS_TRUE) //
+        .root("data").body("ruleName", eq(name));
+
+  }
+
+  @Order(4)
+  @Test
   public void test_rule_update() {
     name = name + "_v2";
     AlarmRuleDTO alarmRuleDTO = new AlarmRuleDTO();
@@ -155,7 +205,7 @@ public class AlertRuleIT extends BaseIT {
         .root("data").body("ruleName", eq(name));
   }
 
-  @Order(4)
+  @Order(5)
   @Test
   public void test_rule_delete() {
     given() //
@@ -170,7 +220,7 @@ public class AlertRuleIT extends BaseIT {
         .body("data", IS_NULL);
   }
 
-  @Order(5)
+  @Order(6)
   @Test
   public void test_rule_pageQuery() {
     Stack<Integer> ids = new Stack<>();
@@ -219,7 +269,7 @@ public class AlertRuleIT extends BaseIT {
         }));
   }
 
-  @Order(6)
+  @Order(7)
   @Test
   public void test_alert_calculate() {
     Integer ruleId = given() //
@@ -235,7 +285,7 @@ public class AlertRuleIT extends BaseIT {
     System.out.println(uniqueId);
     await("Test alert history generation") //
         .atMost(Duration.ofMinutes(10)) //
-        .untilAsserted(() -> {
+        .untilNoException(() -> {
           AlarmHistoryDTO condition = new AlarmHistoryDTO();
           condition.setUniqueId(uniqueId);
           MonitorPageRequest<AlarmHistoryDTO> pageRequest = new MonitorPageRequest<>();
@@ -249,6 +299,40 @@ public class AlertRuleIT extends BaseIT {
               .then() //
               .body("success", IS_TRUE) //
               .body("data.items.size()", gt(0));
+
+          AlarmHistoryDetailDTO detailDTO = new AlarmHistoryDetailDTO();
+          detailDTO.setUniqueId(uniqueId);
+          MonitorPageRequest<AlarmHistoryDetailDTO> detailPageRequest = new MonitorPageRequest<>();
+          long end = System.currentTimeMillis();
+          long start = end - PeriodType.MINUTE.intervalMillis() * 10L;
+          detailPageRequest.setFrom(start);
+          detailPageRequest.setTo(end);
+          detailPageRequest.setTarget(detailDTO);
+          given() //
+              .body(new JSONObject(J.toMap(J.toJson(detailPageRequest)))) //
+              .when() //
+              .post("/webapi/alarmHistoryDetail/countTrend") //
+              .then() //
+              .body("success", IS_TRUE) //
+              .root("data") //
+              .body("results", hasItem(
+                  new CustomMatcher<Map<String, Object>>("check alert history detail count") {
+                    @Override
+                    public boolean matches(Object o) {
+                      Map<String, Object> result = (Map<String, Object>) o;
+                      List<List<Object>> values = (List<List<Object>>) result.get("values");
+                      for (List<Object> item : values) {
+                        if (!CollectionUtils.isEmpty(item) && item.size() > 1
+                            && item.get(1) instanceof Number) {
+                          boolean checkResult = ((Number) item.get(1)).longValue() > 0;
+                          if (checkResult) {
+                            return true;
+                          }
+                        }
+                      }
+                      return false;
+                    }
+                  }));
         });
   }
 

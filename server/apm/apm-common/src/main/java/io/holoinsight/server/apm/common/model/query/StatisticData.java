@@ -3,16 +3,16 @@
  */
 package io.holoinsight.server.apm.common.model.query;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
 
 @Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class StatisticData {
-  private String appId;
-  private String envId;
-  private String tenant;
-  private long serviceCount;
-  private long traceCount;
-  private double successRate;
-  private long entryCount;
-  private double avgLatency;
+  private Map<String, String> resources;
+  private Map<String, Double> datas;
 }

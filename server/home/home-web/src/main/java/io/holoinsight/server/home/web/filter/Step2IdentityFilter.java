@@ -3,6 +3,7 @@
  */
 package io.holoinsight.server.home.web.filter;
 
+import io.holoinsight.server.home.biz.common.MetaDictUtil;
 import io.holoinsight.server.home.biz.ula.ULAFacade;
 import io.holoinsight.server.home.common.util.scope.RequestContext;
 import io.holoinsight.server.home.web.config.RestAuthUtil;
@@ -27,6 +28,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
+import static io.holoinsight.server.home.web.common.ResponseUtil.authFailedResponse;
+
 /**
  *
  * @author jsy1001de
@@ -50,15 +53,17 @@ public class Step2IdentityFilter implements Filter {
       FilterChain filterChain) throws IOException, ServletException {
     HttpServletRequest req = (HttpServletRequest) servletRequest;
     HttpServletResponse resp = (HttpServletResponse) servletResponse;
+    boolean next;
     try {
-      boolean next = identity(req, resp);
-      if (next) {
-        filterChain.doFilter(servletRequest, servletResponse);
-      }
+      next = identity(req, resp);
     } catch (Throwable e) {
-      resp.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+      authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED,
           RequestContext.getTrace() + " identity error, " + e.getMessage());
       log.error("{} identity error", RequestContext.getTrace(), e);
+      return;
+    }
+    if (next) {
+      filterChain.doFilter(servletRequest, servletResponse);
     }
   }
 
@@ -75,7 +80,7 @@ public class Step2IdentityFilter implements Filter {
         req.setAttribute(MonitorUser.MONITOR_USER, MonitorUser.newTokenUser(accessKey));
         return true;
       }
-      resp.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+      authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED,
           req.getServletPath() + ", accessKey is not existed, " + accessKey);
       log.error(req.getServletPath() + ", accessKey is not existed, " + accessKey);
       return false;
@@ -91,7 +96,7 @@ public class Step2IdentityFilter implements Filter {
     return userCheck(req, resp);
   }
 
-  public boolean userCheck(HttpServletRequest req, HttpServletResponse resp) {
+  public boolean userCheck(HttpServletRequest req, HttpServletResponse resp) throws IOException {
     try {
       // 判断用户登陆了
       MonitorUser userCookie = MonitorCookieUtil.getUserCookie(req);
@@ -113,17 +118,14 @@ public class Step2IdentityFilter implements Filter {
         MonitorCookieUtil.addUserCookie(user, resp);
         req.setAttribute(MonitorUser.MONITOR_USER, user);
         return true;
-      }
-      if (!resp.isCommitted()) {
-        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+      } else {
+        authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED, "check login failed");
+        return false;
       }
     } catch (Throwable e) {
-      try {
-        log.error("login failed", e);
-        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "login failed");
-      } catch (Throwable e1) {
-        log.error("login failed and senderror fail", e);
-      }
+      log.error("login failed, " + e.getMessage(), e);
+      authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED,
+          "check login failed, " + e.getMessage());
     }
     return false;
 
@@ -131,15 +133,16 @@ public class Step2IdentityFilter implements Filter {
 
   public boolean tokenCheck(String token, HttpServletRequest req, HttpServletResponse resp)
       throws IOException {
-    if (!(TokenUrlFactoryHolder.checkIsExist(req.getServletPath()))) {
-      resp.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+    if (!TokenUrlFactoryHolder.checkIsExist(req.getServletPath())
+        && !MetaDictUtil.getTokenUrlWriteList().contains(req.getServletPath())) {
+      authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED,
           req.getServletPath() + " is not open, please connect monitor admin, " + token);
       log.error(req.getServletPath() + " is not open, please connect monitor admin, " + token);
       return false;
     }
     Boolean aBoolean = monitorAccessService.tokenExpire(req, token, token_expire_sec);
     if (aBoolean) {
-      resp.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+      authFailedResponse(resp, HttpServletResponse.SC_UNAUTHORIZED,
           req.getServletPath() + ", token expired, " + token);
       log.error(req.getServletPath() + ", token expired, " + token);
       return false;

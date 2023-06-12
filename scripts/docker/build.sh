@@ -8,7 +8,7 @@ project_root=`realpath $script_dir/../..`
 
 cd $project_root
 
-if [ -z "$NO_BUILD_APP" ]; then
+if [ "$nobuild"x != "1"x  ]; then
   ./scripts/all-in-one/build.sh
 fi
 
@@ -18,4 +18,4 @@ if [ -z "$tag" ]; then
 fi
 
 # build with current arch
-docker buildx build --load -t holoinsight/server:$tag -f ./scripts/docker/Dockerfile .
+docker build -t holoinsight/server:$tag -f ./scripts/docker/Dockerfile .

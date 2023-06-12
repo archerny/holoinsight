@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,7 +35,6 @@ import io.holoinsight.server.home.biz.service.MetaTableService;
 import io.holoinsight.server.home.biz.service.TenantInitService;
 import io.holoinsight.server.home.biz.service.TenantOpsService;
 import io.holoinsight.server.home.common.util.Debugger;
-import io.holoinsight.server.home.common.util.TenantMetaUtil;
 import io.holoinsight.server.home.common.util.scope.MonitorCookieUtil;
 import io.holoinsight.server.home.common.util.scope.MonitorScope;
 import io.holoinsight.server.home.common.util.scope.MonitorUser;
@@ -112,6 +112,7 @@ public class InitFacadeImpl extends BaseFacade {
   @ResponseBody
   @GetMapping(value = "/tenantSwitch/{tenant}")
   public JsonResult<Boolean> tenantSwitch(@PathVariable("tenant") String tenant,
+      @RequestParam(value = "workspace", required = false) String workspace,
       HttpServletResponse response) {
 
     final JsonResult<Boolean> result = new JsonResult<>();
@@ -124,6 +125,7 @@ public class InitFacadeImpl extends BaseFacade {
       @Override
       public void doManage() {
         MonitorCookieUtil.addTenantCookie(tenant, response);
+        MonitorCookieUtil.addTenantWorkspaceCookie(workspace, response);
         JsonResult.createSuccessResult(result, true);
       }
     });
@@ -221,11 +223,11 @@ public class InitFacadeImpl extends BaseFacade {
     MetaTableDTO metaTable = new MetaTableDTO();
     metaTable.setCreator(mu.getLoginName());
     metaTable.setModifier(mu.getLoginName());
-    metaTable.setTenant(MonitorCookieUtil.getTenantOrException());
+    metaTable.setTenant(ms.getTenant());
     metaTable.setGmtCreate(new Date());
     metaTable.setGmtModified(new Date());
 
-    metaTable.setName(TenantMetaUtil.genTenantServerTableName(ms.getTenant()));
+    metaTable.setName(String.format("%s_server", ms.getTenant()));
     metaTable.setStatus(TableStatus.ONLINE);
 
     List<MetaTableCol> tableSchema = new ArrayList<>();

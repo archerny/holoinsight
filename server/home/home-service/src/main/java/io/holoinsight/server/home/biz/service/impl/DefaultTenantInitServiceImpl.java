@@ -4,7 +4,15 @@
 package io.holoinsight.server.home.biz.service.impl;
 
 import io.holoinsight.server.common.dao.entity.dto.TenantOpsStorage;
+import io.holoinsight.server.home.biz.common.GaeaConvertUtil;
+import io.holoinsight.server.home.biz.plugin.config.MetaLabel;
 import io.holoinsight.server.home.biz.service.TenantInitService;
+import io.holoinsight.server.home.dal.model.dto.CloudMonitorRange;
+import io.holoinsight.server.query.grpc.QueryProto.QueryFilter;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * <p>
@@ -20,4 +28,51 @@ public class DefaultTenantInitServiceImpl implements TenantInitService {
     sm.setType("unknown");
     return sm;
   }
+
+  @Override
+  public String getTenantServerTable(String tenant) {
+    return tenant + "_server";
+  }
+
+  @Override
+  public String getTenantAppTable(String tenant) {
+    return tenant + "_app";
+  }
+
+  @Override
+  public String getTraceTenant(String tenant) {
+    return tenant;
+  }
+
+  @Override
+  public String getTsdbTenant(String tenant) {
+    return tenant;
+  }
+
+  @Override
+  public Boolean checkConditions(String workspace, List<QueryFilter> filters) {
+    return true;
+  }
+
+  @Override
+  public Map<String, String> getTenantWorkspaceMetaConditions(String workspace) {
+    return new HashMap<>();
+  }
+
+  @Override
+  public List<QueryFilter> getTenantFilters(String workspace) {
+    return null;
+  }
+
+  @Override
+  public String getLogMonitorMetricTable(String tableName) {
+    return tableName;
+  }
+
+  @Override
+  public CloudMonitorRange getCollectMonitorRange(String table, String workspace,
+      List<String> strings, MetaLabel metaLabel) {
+    return GaeaConvertUtil.convertCloudMonitorRange(table, metaLabel, strings);
+  }
+
 }

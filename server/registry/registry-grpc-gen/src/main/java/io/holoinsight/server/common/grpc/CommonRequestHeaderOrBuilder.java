@@ -62,4 +62,22 @@ public interface CommonRequestHeaderOrBuilder extends
    */
 
   java.lang.String getHeaderOrThrow(java.lang.String key);
+
+  /**
+   * <pre>
+   * workspace
+   * </pre>
+   *
+   * <code>string workspace = 4;</code>
+   */
+  java.lang.String getWorkspace();
+
+  /**
+   * <pre>
+   * workspace
+   * </pre>
+   *
+   * <code>string workspace = 4;</code>
+   */
+  com.google.protobuf.ByteString getWorkspaceBytes();
 }

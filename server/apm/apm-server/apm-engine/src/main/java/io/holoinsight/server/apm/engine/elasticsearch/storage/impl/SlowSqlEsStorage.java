@@ -6,7 +6,7 @@ package io.holoinsight.server.apm.engine.elasticsearch.storage.impl;
 import io.holoinsight.server.apm.common.model.query.SlowSql;
 import io.holoinsight.server.apm.engine.elasticsearch.utils.EsGsonUtils;
 import io.holoinsight.server.apm.engine.model.SlowSqlDO;
-import io.holoinsight.server.apm.engine.model.SpanDO;
+import io.holoinsight.server.apm.engine.storage.ICommonBuilder;
 import io.holoinsight.server.apm.engine.storage.SlowSqlStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class SlowSqlEsStorage extends RecordEsStorage<SlowSqlDO> implements SlowSqlStorage {
@@ -30,21 +31,25 @@ public class SlowSqlEsStorage extends RecordEsStorage<SlowSqlDO> implements Slow
   @Autowired
   private RestHighLevelClient client;
 
-  protected RestHighLevelClient esClient() {
+  @Autowired
+  private ICommonBuilder commonBuilder;
+
+  protected RestHighLevelClient client() {
     return client;
   }
 
-  protected String rangeTimeField() {
-    return SpanDO.START_TIME;
+  @Override
+  public String timeSeriesField() {
+    return SlowSqlDO.START_TIME;
   }
 
   @Override
   public List<SlowSql> getSlowSqlList(String tenant, String serviceName, String dbAddress,
-      long startTime, long endTime) throws IOException {
+      long startTime, long endTime, Map<String, String> termParams) throws IOException {
 
     BoolQueryBuilder queryBuilder =
         QueryBuilders.boolQuery().must(QueryBuilders.termQuery(SlowSqlDO.TENANT, tenant))
-            .must(QueryBuilders.rangeQuery(rangeTimeField()).gte(startTime).lte(endTime));
+            .must(QueryBuilders.rangeQuery(this.timeSeriesField()).gte(startTime).lte(endTime));
 
     if (!StringUtils.isEmpty(serviceName)) {
       queryBuilder.must(QueryBuilders.termQuery(SlowSqlDO.SERVICE_NAME, serviceName));
@@ -53,13 +58,14 @@ public class SlowSqlEsStorage extends RecordEsStorage<SlowSqlDO> implements Slow
       queryBuilder.must(QueryBuilders.termQuery(SlowSqlDO.ADDRESS, dbAddress));
     }
 
+    commonBuilder.addTermParams(queryBuilder, termParams);
     SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
     sourceBuilder.size(1000);
     sourceBuilder.query(queryBuilder);
 
     SearchRequest searchRequest = new SearchRequest(SlowSqlDO.INDEX_NAME);
     searchRequest.source(sourceBuilder);
-    SearchResponse response = esClient().search(searchRequest, RequestOptions.DEFAULT);
+    SearchResponse response = client().search(searchRequest, RequestOptions.DEFAULT);
 
     List<SlowSql> result = new ArrayList<>();
     for (SearchHit searchHit : response.getHits().getHits()) {

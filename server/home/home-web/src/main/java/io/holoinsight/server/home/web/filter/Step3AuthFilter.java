@@ -7,7 +7,6 @@ import io.holoinsight.server.home.web.config.RestAuthUtil;
 import io.holoinsight.server.common.J;
 import io.holoinsight.server.home.biz.ula.ULAFacade;
 import io.holoinsight.server.home.biz.common.MetaDictUtil;
-import io.holoinsight.server.home.common.util.CookieUtils;
 import io.holoinsight.server.home.common.util.Debugger;
 import io.holoinsight.server.home.common.util.StringUtil;
 import io.holoinsight.server.home.common.util.scope.IdentityType;
@@ -35,6 +34,8 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
 
+import static io.holoinsight.server.home.web.common.ResponseUtil.authFailedResponse;
+
 /**
  *
  * @author jsy1001de
@@ -53,17 +54,20 @@ public class Step3AuthFilter implements Filter {
       FilterChain filterChain) throws IOException, ServletException {
     HttpServletRequest req = (HttpServletRequest) servletRequest;
     HttpServletResponse resp = (HttpServletResponse) servletResponse;
+    boolean next;
     try {
-      boolean next = auth(req, resp);
-      if (next) {
-        filterChain.doFilter(servletRequest, servletResponse);
-      }
+      next = auth(req, resp);
     } catch (Throwable e) {
-      resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "auth check error, " + e.getMessage());
+      authFailedResponse(resp, HttpServletResponse.SC_FORBIDDEN,
+          "auth check error, " + e.getMessage());
       log.error("{} auth check error, auth info: {}", RequestContext.getTrace(),
           J.toJson(J.toJson(RequestContext.getContext())), e);
+      return;
     } finally {
       Debugger.print("Step3AuthFilter", "CTX: " + J.toJson(J.toJson(RequestContext.getContext())));
+    }
+    if (next) {
+      filterChain.doFilter(servletRequest, servletResponse);
     }
   }
 
@@ -80,8 +84,7 @@ public class Step3AuthFilter implements Filter {
       // 接口权限判定
       if (!ulaFacade.authFunc(req) && StringUtil.isBlank(token)) {
         log.warn("{} authFunc check failed", RequestContext.getTrace());
-        resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
-            RequestContext.getTrace() + " authFunc check failed");
+        authFailedResponse(resp, HttpServletResponse.SC_FORBIDDEN, "权限不足，请联系账号管理员");
         return false;
       }
       Context c = new Context(RequestContext.getContext().ms, mu, new MonitorAuth(),
@@ -91,7 +94,7 @@ public class Step3AuthFilter implements Filter {
     }
 
     // 获取一个用户的权限包
-    MonitorScope ms = MonitorCookieUtil.getScope(req, mu);
+    MonitorScope ms = ulaFacade.getMonitorScope(req, mu);
     MonitorAuth ma = null;
 
     try {
@@ -109,13 +112,13 @@ public class Step3AuthFilter implements Filter {
       if (null == ma || CollectionUtils.isEmpty(ma.powerConstants)
           || CollectionUtils.isEmpty(ma.getTenantViewPowerList())) {
         log.error("check tenant auth failed, " + J.toJson(ma));
-        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "check tenant auth failed");
+        authFailedResponse(resp, HttpServletResponse.SC_FORBIDDEN, "check tenant auth failed");
         return false;
       }
 
       if (!ma.getTenantViewPowerList().containsKey(ms.getTenant())) {
         log.error("check tenant " + ms.getTenant() + " is not auth, " + J.toJson(ma));
-        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+        authFailedResponse(resp, HttpServletResponse.SC_FORBIDDEN,
             "check tenant " + ms.getTenant() + " is not auth");
         return false;
       }
@@ -125,6 +128,8 @@ public class Step3AuthFilter implements Filter {
       // 放到线程上下文中
     } catch (Throwable e) {
       log.error("auth failed by cookie", e);
+      authFailedResponse(resp, HttpServletResponse.SC_FORBIDDEN,
+          "auth failed by cookie, " + e.getMessage());
       return false;
     } finally {
       Context c = new Context(ms, mu, ma);

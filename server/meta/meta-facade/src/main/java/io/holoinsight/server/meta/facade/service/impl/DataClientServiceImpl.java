@@ -38,15 +38,6 @@ public class DataClientServiceImpl extends AbstractCacheInteractService
     pickOneCookie().insertOrUpdate(tableName, rows);
   }
 
-  @Override
-  public void insert(String tableName, List<Map<String, Object>> rows) {
-    pickOneCookie().insert(tableName, rows);
-  }
-
-  @Override
-  public void update(String tableName, List<Map<String, Object>> rows) {
-    pickOneCookie().update(tableName, rows);
-  }
 
   @Override
   public void delete(String tableName, List<String> uks) {
@@ -59,13 +50,13 @@ public class DataClientServiceImpl extends AbstractCacheInteractService
   }
 
   @Override
-  public void deleteByExample(String tableName, QueryExample example) {
-    pickOneCookie().deleteByExample(tableName, example);
+  public List<Map<String, Object>> queryAll(String tableName, List<String> rowKeys) {
+    return pickOneCookie().queryAll(tableName, rowKeys);
   }
 
   @Override
-  public void updateByExample(String tableName, QueryExample example, Map<String, Object> row) {
-    pickOneCookie().updateByExample(tableName, example, row);
+  public void deleteByExample(String tableName, QueryExample example) {
+    pickOneCookie().deleteByExample(tableName, example);
   }
 
   @Override

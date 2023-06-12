@@ -18,6 +18,17 @@ services:
       interval: 3s
       retries: 300
       timeout: 10s
+  # mysql web ui
+  phpmyadmin:
+    image: phpmyadmin:latest
+    environment:
+      PMA_HOSTS: mysql
+      PMA_USER: holoinsight
+      PMA_PASSWORD: holoinsight
+    ports:
+    - 80
+    profiles:
+    - debug
   mongo:
     image: ${mongo_image:-mongo:4.4.18}
     environment:
@@ -27,13 +38,22 @@ services:
     volumes:
     - ./init.js:/docker-entrypoint-initdb.d/init.js
     restart: always
-    ports:
-    - 27017
     healthcheck:
       test: [ "CMD", "timeout", "1", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/27017" ]
       interval: 3s
       retries: 300
       timeout: 10s
+  # mongo web ui
+  mongo-express:
+    image: mongo-express:latest
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_ADMINUSERNAME: holoinsight
+      ME_CONFIG_MONGODB_ADMINPASSWORD: holoinsight
+    ports:
+    - 8081
+    profiles:
+    - debug
   ceresdb:
     image: ${ceresdb_image:-ceresdb/ceresdb-server:v1.0.0}
     volumes:
@@ -44,11 +64,24 @@ services:
       interval: 3s
       retries: 300
       timeout: 10s
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+    - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: always
     ports:
-    - 8831
-    - 5440
+    - 9090
   server:
     image: ${server_image:-holoinsight/server:latest}
+    environment:
+      APP: "holoinsight-server-example"
+      # You can override this env using the following command:
+      # server_JAVA_APP_OPTS='-Xmx2048m -Xms2048m -Xmn1024m' ./up.sh
+      JAVA_APP_OPTS: ${server_JAVA_APP_OPTS:--Xmx1024m -Xms1024m -Xmn512m}
+      JAVA_DEBUG_OPTS: ${JAVA_DEBUG_OPTS:-}
+      SW_AGENT_NAME: holoinsight-server-example
+      SW_AGENT_AUTHENTICATION: example
+      SW_AGENT_COLLECTOR_BACKEND_SERVICES: collector:11800
     healthcheck:
       test: [ "CMD", "bash", "/home/admin/bin/health.sh" ]
       interval: 3s
@@ -58,8 +91,22 @@ services:
     - 80 # nginx
     - 8080 # tomcat
     - 8000 # java debug
+    - 7681 # web terminal
+    volumes:
+    - ./agent_entrypoint.sh:/agent_entrypoint.sh:ro
+  collector:
+    image: ${collector_image:-holoinsight/otelcontribcol:latest}
+    healthcheck:
+      test: [ "CMD", "timeout", "1", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/11800" ]
+      interval: 3s
+      retries: 300
+      timeout: 10s
+    volumes:
+    - ./collector-config.yml:/config/config.yml
   agent-image:
-    image: ${server_image:-holoinsight/agent:latest}
+    image: ${agent_image:-holoinsight/agent:latest}
+    volumes:
+    - ./agent.yaml:/temp/agent.yaml
     entrypoint: [ "true" ]
   mysql-data-init:
     image: ${mysql_image:-mysql:8}
@@ -76,10 +123,7 @@ services:
     image: ${es_image:-elasticsearch:7.16.1}
     environment:
       "discovery.type": "single-node"
-      ES_JAVA_OPTS: -Xms1g -Xmx1g
-    ports:
-    - 9200
-    - 9300
+      ES_JAVA_OPTS: -Xmx1g
     healthcheck:
       test: [ "CMD", "timeout", "1", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/9200" ]
       interval: 1s
@@ -89,3 +133,17 @@ services:
     image: ${kibana_image:-kibana:7.16.1}
     environment:
       ELASTICSEARCH_HOSTS: 'http://es:9200'
+    ports:
+    - 5601
+  grafana:
+    image: grafana/grafana-oss:8.5.22
+    volumes:
+    - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+    ports:
+    - 3000
+    profiles:
+    - debug
+  # web terminal
+  ttyd:
+    image: tsl0922/ttyd
+    entrypoint: ["true"]

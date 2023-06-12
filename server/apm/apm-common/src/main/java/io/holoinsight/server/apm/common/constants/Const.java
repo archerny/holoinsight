@@ -3,9 +3,6 @@
  */
 package io.holoinsight.server.apm.common.constants;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class Const {
   public static final String NONE = "0";
   public static final String SERVICE_ID_CONNECTOR = ".";
@@ -41,6 +38,8 @@ public class Const {
 
   public static final String OTLP_ATTRIBUTES_PREFIX = "attributes.";
 
+  public static final String OTLP_RESOURCE_PREFIX = "resource.";
+
   // slow sql latency threshold
   public static final long SLOW_SQL_THRESHOLD = 300;
 
@@ -49,12 +48,5 @@ public class Const {
 
   // custom tags
   public static final String OTLP_SPANLAYER = "spanLayer";
-  public static final String STAMP = "stamp";
-  public static final String ISENTRY = "isEntry";
-  public static final String ERRORCODE = "errorCode";
-  public static final String ROOTERRORCODE = "rootErrorCode";
-  public static final String APPID = "appId";
-  public static final String ENVID = "envId";
-
 
 }

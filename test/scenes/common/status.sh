@@ -6,17 +6,41 @@ source `dirname $0`/../common/setup-env.sh
 ip=`hostname -I | awk '{print $1}'`
 
 echo
-docker-compose ps
+
+ps=`docker-compose ps`
+echo "$ps"
 
 echo
-echo Visit server http://$ip:`docker-compose port server 80 | awk -F: '{print $2}'`
-echo Exec server using ./server-exec.sh
-echo
 
-echo Visit mysql at $ip:`docker-compose port mysql 3306 | awk -F: '{print $2}'`
-echo Exec mysql using ./mysql-exec.sh
-echo
+source="  Component\t  Access
+  Server_UI\t  http://$ip:`get_port server 80`
+  Server_JVM_Debugger\t  $ip:`get_port server 8000`
+  Server_exec\t  ./server-exec.sh
+  Server_Web_Shell\t  http://$ip:`get_port server 7681`
+  MySQL\t  $ip:`get_port mysql 3306`
+  MySQL_exec\t  ./mysql-exec.sh"
 
-if docker-compose ps | grep kibana >/dev/null; then
-  echo Visit kibana at $ip:`docker-compose port kibana 5601 | awk -F: '{print $2}'`
+if echo "$ps" | grep phpmyadmin >/dev/null; then
+  source="$source
+  MySQL_Web_UI\t  http://$ip:`get_port phpmyadmin 80`?db=holoinsight"
 fi
+
+if echo "$ps" | grep mongo-express >/dev/null; then
+  source="$source
+  MongoDB_Web_UI\t  http://$ip:`get_port mongo-express 8081`/db/holoinsight/"
+fi
+
+if echo "$ps" | grep kibana >/dev/null; then
+  source="$source
+  Kibana_Web_UI\t  http://$ip:`get_port kibana 5601`"
+fi
+
+if echo "$ps" | grep grafana >/dev/null; then
+  source="$source
+  Grafana_Web_UI\t  http://$ip:`get_port grafana 3000`"
+fi
+
+#echo "$source" | column -t | sed '1{p;s/./-/g}'
+#echo
+echo "$source" | ../common/utils/prettytable/prettytable.sh 2
+

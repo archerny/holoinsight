@@ -107,13 +107,14 @@ public class AlarmRuleFacadeImpl extends BaseFacade {
         ParaCheckUtil.checkParaNotNull(alarmRuleDTO.getStatus(), "status");
         ParaCheckUtil.checkParaNotNull(alarmRuleDTO.getRecover(), "recover");
         ParaCheckUtil.checkParaNotNull(alarmRuleDTO.getIsMerge(), "isMerge");
+        ParaCheckUtil.checkInvalidCharacter(alarmRuleDTO.getRuleName(), "invalid ruleName");
       }
 
       @Override
       public void doManage() {
         MonitorScope ms = RequestContext.getContext().ms;
         MonitorUser mu = RequestContext.getContext().mu;
-        if (null != mu) {
+        if (null != mu && StringUtils.isBlank(alarmRuleDTO.getCreator())) {
           alarmRuleDTO.setCreator(mu.getLoginName());
         }
         if (null != ms && !StringUtils.isEmpty(ms.tenant)) {
@@ -169,7 +170,9 @@ public class AlarmRuleFacadeImpl extends BaseFacade {
         ParaCheckUtil.checkParaNotNull(alarmRuleDTO.getTenant(), "tenant");
         ParaCheckUtil.checkEquals(alarmRuleDTO.getTenant(),
             RequestContext.getContext().ms.getTenant(), "tenant is illegal");
-
+        if (StringUtils.isNotBlank(alarmRuleDTO.getRuleName())) {
+          ParaCheckUtil.checkInvalidCharacter(alarmRuleDTO.getRuleName(), "invalid ruleName");
+        }
       }
 
       @Override
@@ -186,7 +189,7 @@ public class AlarmRuleFacadeImpl extends BaseFacade {
         }
 
         MonitorUser mu = RequestContext.getContext().mu;
-        if (null != mu) {
+        if (null != mu && StringUtils.isBlank(alarmRuleDTO.getModifier())) {
           alarmRuleDTO.setModifier(mu.getLoginName());
         }
         alarmRuleDTO.setGmtModified(new Date());

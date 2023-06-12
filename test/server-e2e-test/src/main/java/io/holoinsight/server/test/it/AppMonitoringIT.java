@@ -3,6 +3,7 @@
  */
 package io.holoinsight.server.test.it;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.json.JSONArray;
@@ -24,7 +25,7 @@ public class AppMonitoringIT extends BaseIT {
   @Test
   void test_has_VM_meta() {
     await("Has VM Meta") //
-        .untilAsserted(() -> {
+        .untilNoException(() -> {
           given() //
               .pathParam("tenant", tenant) //
               .when() //
@@ -40,7 +41,8 @@ public class AppMonitoringIT extends BaseIT {
   @Test
   public void test_has_correct_displayMenu() {
     await() //
-        .untilAsserted(() -> { //
+        .atMost(Duration.ofMinutes(10)) //
+        .untilNoException(() -> { //
           given() //
               .pathParam("app", "holoinsight-server-example") //
               .when() //
@@ -61,7 +63,7 @@ public class AppMonitoringIT extends BaseIT {
     // After docker-docker bootstrapped, it takes about 2~3 minutes to generate first CPU data.
     await("Has System Metrics") //
         .atMost(5, TimeUnit.MINUTES) //
-        .untilAsserted(() -> {
+        .untilNoException(() -> {
           for (String metric : new String[] {"system_cpu_util", //
               "system_cpu_user", //
               "system_cpu_sys", //

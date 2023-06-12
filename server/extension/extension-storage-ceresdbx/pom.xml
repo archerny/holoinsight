@@ -21,13 +21,13 @@
 
 		<dependency>
 			<groupId>io.holoinsight.server</groupId>
-			<artifactId>extension-storage</artifactId>
+			<artifactId>extension-storage-remote-promql</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.ceresdb</groupId>
 			<artifactId>ceresdb-all</artifactId>
-			<version>1.0.1</version>
+			<version>1.0.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework</groupId>

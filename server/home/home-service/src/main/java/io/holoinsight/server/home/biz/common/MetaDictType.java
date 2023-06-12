@@ -16,5 +16,6 @@ public class MetaDictType {
   public static final String MANAGE_TASK = "manage_task";
   public static final String TRACE_AGENT_CONFIG = "trace_agent_config";
   public static final String NOTIFICATION_CONFIG = "notification_config";
-  public static final String MARKETPLACE_CONFIG = "marketplace_config";
+  public static final String METRIC_CONFIG = "metric_config";
+  public static final String INTEGRATION_CONFIG = "integration_config";
 }

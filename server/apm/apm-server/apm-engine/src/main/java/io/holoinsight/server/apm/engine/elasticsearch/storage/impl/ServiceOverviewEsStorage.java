@@ -6,6 +6,7 @@ package io.holoinsight.server.apm.engine.elasticsearch.storage.impl;
 import io.holoinsight.server.apm.common.model.query.Service;
 import io.holoinsight.server.apm.common.model.specification.otel.SpanKind;
 import io.holoinsight.server.apm.engine.model.SpanDO;
+import io.holoinsight.server.apm.engine.storage.ICommonBuilder;
 import io.holoinsight.server.apm.engine.storage.ServiceOverviewStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.elasticsearch.action.search.SearchRequest;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class ServiceOverviewEsStorage implements ServiceOverviewStorage {
@@ -28,17 +30,21 @@ public class ServiceOverviewEsStorage implements ServiceOverviewStorage {
   @Autowired
   private RestHighLevelClient client;
 
-  protected RestHighLevelClient esClient() {
+  @Autowired
+  private ICommonBuilder commonBuilder;
+
+  protected RestHighLevelClient client() {
     return client;
   }
 
-  protected String rangeTimeField() {
-    return SpanDO.START_TIME;
+  @Override
+  public String timeSeriesField() {
+    return SpanDO.END_TIME;
   }
 
   @Override
-  public List<Service> getServiceList(String tenant, long startTime, long endTime)
-      throws IOException {
+  public List<Service> getServiceList(String tenant, long startTime, long endTime,
+      Map<String, String> termParams) throws IOException {
     List<Service> result = new ArrayList<>();
 
     BoolQueryBuilder queryBuilder =
@@ -47,16 +53,17 @@ public class ServiceOverviewEsStorage implements ServiceOverviewStorage {
             .must(QueryBuilders.boolQuery()
                 .should(QueryBuilders.termQuery(SpanDO.KIND, SpanKind.SERVER))
                 .should(QueryBuilders.termQuery(SpanDO.KIND, SpanKind.CONSUMER)))
-            .must(QueryBuilders.rangeQuery(rangeTimeField()).gte(startTime).lte(endTime));
+            .must(QueryBuilders.rangeQuery(timeSeriesField()).gte(startTime).lte(endTime));
 
+    commonBuilder.addTermParamsWithAttrPrefix(queryBuilder, termParams);
     SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
-    sourceBuilder.size(1000);
+    sourceBuilder.size(0);
     sourceBuilder.query(queryBuilder);
-    sourceBuilder.aggregation(CommonBuilder.buildAgg(SpanDO.resource(SpanDO.SERVICE_NAME)));
+    sourceBuilder.aggregation(commonBuilder.buildAgg(SpanDO.resource(SpanDO.SERVICE_NAME)));
 
     SearchRequest searchRequest = new SearchRequest(SpanDO.INDEX_NAME);
     searchRequest.source(sourceBuilder);
-    SearchResponse response = esClient().search(searchRequest, RequestOptions.DEFAULT);
+    SearchResponse response = client().search(searchRequest, RequestOptions.DEFAULT);
 
     Terms terms = response.getAggregations().get(SpanDO.resource(SpanDO.SERVICE_NAME));
     for (Terms.Bucket bucket : terms.getBuckets()) {
@@ -64,7 +71,7 @@ public class ServiceOverviewEsStorage implements ServiceOverviewStorage {
 
       Service service = new Service();
       service.setName(serviceName);
-      service.setMetric(CommonBuilder.buildMetric(bucket));
+      service.setMetric(commonBuilder.buildMetric(bucket));
 
       result.add(service);
     }

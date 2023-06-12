@@ -39,6 +39,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -147,12 +148,12 @@ public class GetSubscriptionHandler implements AlertHandlerExecutor {
           alertSubscribeQueryWrapper.eq("unique_id", alertNotify.getUniqueId());
           alertSubscribeQueryWrapper.eq("status", (byte) 1);
           alertSubscribeQueryWrapper.eq("tenant", alertNotify.getTenant());
-
+          addGlobalWebhook(alertNotify, alertWebhookMap);
           List<AlarmSubscribe> alertSubscribeList =
               alarmSubscribeDOMapper.selectList(alertSubscribeQueryWrapper);
-          LOGGER.info("{} GetSubscription SUCCESS {} ", alertNotify.getTraceId(),
-              G.get().toJson(alertSubscribeList));
-          if (alertSubscribeList != null) {
+          LOGGER.info("{} GetSubscription_SUCCESS {} {} ", alertNotify.getTraceId(),
+              alertNotify.getUniqueId(), G.get().toJson(alertSubscribeList));
+          if (!CollectionUtils.isEmpty(alertSubscribeList)) {
             Set<String> userIdList = new HashSet<>();
             Set<Long> dingDingGroupIdList = new HashSet<>();
             List<WebhookInfo> webhookInfos = new ArrayList<>();
@@ -160,6 +161,7 @@ public class GetSubscriptionHandler implements AlertHandlerExecutor {
             for (AlarmSubscribe alertSubscribe : alertSubscribeList) {
               String noticeTypeStr = alertSubscribe.getNoticeType();
               if (StringUtils.isEmpty(noticeTypeStr) || !noticeTypeStr.startsWith("[")) {
+                LOGGER.warn("{} invalid noticeTypeStr {}", alertNotify.getTraceId(), noticeTypeStr);
                 continue;
               }
               List<String> noticeTypeList = G.parseList(noticeTypeStr, String.class);
@@ -216,19 +218,20 @@ public class GetSubscriptionHandler implements AlertHandlerExecutor {
                       if (alertWebhook != null && alertWebhook.getStatus().equals((byte) 1)) {
                         webhookInfos.add(DoConvert.alertWebhookDoConverter(alertWebhook));
                       }
-                      List<AlarmWebhook> alertWebhookList =
-                          alertWebhookMap.get(alertNotify.getTenant());
-                      if (alertWebhookList != null) {
-                        webhookInfos.addAll(alertWebhookList.stream()
-                            .map(DoConvert::alertWebhookDoConverter).collect(Collectors.toList()));
-                      }
+                      LOGGER.info("{} webhookInfos is {}.", alertNotify.getTraceId(),
+                          G.get().toJson(webhookInfos));
+                    } else {
+                      LOGGER.info("{} alert is recover.", alertNotify.getTraceId());
                     }
                     break;
                 }
               }
             }
             alertNotify.setUserNotifyMap(userNotifyMap);
-            alertNotify.setWebhookInfos(webhookInfos);
+            if (!CollectionUtils.isEmpty(webhookInfos)) {
+              alertNotify.getWebhookInfos().addAll(webhookInfos);
+            }
+
             if (!CollectionUtils.isEmpty(dingDingGroupIdList)) {
               QueryWrapper<AlarmDingDingRobot> wrapper = new QueryWrapper<>();
               wrapper.in("id", new ArrayList<>(dingDingGroupIdList));
@@ -246,7 +249,7 @@ public class GetSubscriptionHandler implements AlertHandlerExecutor {
             }
           }
           FuseProtector.voteComplete(NORMAL_GetSubscriptionDetail);
-        } catch (Exception e) {
+        } catch (Throwable e) {
           LOGGER.error(
               "[HoloinsightAlertInternalException][GetSubscriptionHandler][1] {}  fail to get_subscription for {}",
               alertNotify.getTraceId(), e.getMessage(), e);
@@ -260,6 +263,19 @@ public class GetSubscriptionHandler implements AlertHandlerExecutor {
           alertNotifies.size(), e.getMessage(), e);
       FuseProtector.voteCriticalError(CRITICAL_GetSubscription, e.getMessage());
     }
+  }
+
+  private void addGlobalWebhook(AlertNotify alertNotify,
+      Map<String, List<AlarmWebhook>> alertWebhookMap) {
+    List<WebhookInfo> webhookInfos = new ArrayList<>();
+    List<AlarmWebhook> alertWebhookList = alertWebhookMap.get(alertNotify.getTenant());
+    if (!CollectionUtils.isEmpty(alertWebhookList)) {
+      webhookInfos.addAll(alertWebhookList.stream().map(DoConvert::alertWebhookDoConverter)
+          .collect(Collectors.toList()));
+    }
+    LOGGER.info("{} global webhookInfos is {}.", alertNotify.getTraceId(),
+        G.get().toJson(webhookInfos));
+    alertNotify.getWebhookInfos().addAll(webhookInfos);
   }
 
   private boolean isNotifyGroup(Long groupId) {

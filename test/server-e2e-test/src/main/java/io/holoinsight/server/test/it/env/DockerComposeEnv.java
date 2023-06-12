@@ -4,6 +4,7 @@
 package io.holoinsight.server.test.it.env;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -67,9 +68,32 @@ public class DockerComposeEnv implements Env<DockerComposeEnv> {
 
     long begin = System.currentTimeMillis();
     log.info("docker-compose up file={}", composeFile.getAbsolutePath());
-    dcc.start();
-    long cost = System.currentTimeMillis() - begin;
-    log.info("docker-compose bootstrap success, cost=[{}]ms", cost);
+    try {
+      dcc.start();
+      long cost = System.currentTimeMillis() - begin;
+      log.info("docker-compose bootstrap success, cost=[{}]ms", cost);
+    } finally {
+      try {
+        new ProcessExecutor("free", "-m") //
+            .redirectOutput(System.out) //
+            .redirectError(System.err) //
+            .timeout(10, TimeUnit.MINUTES) //
+            .execute();
+      } catch (IOException e) {
+        log.error("free -m error", e);
+      }
+
+      try {
+        new ProcessExecutor("docker", "ps", "-a") //
+            .redirectOutput(System.out) //
+            .redirectError(System.err) //
+            .timeout(10, TimeUnit.MINUTES) //
+            .execute();
+      } catch (IOException e) {
+        log.error("docker ps -a", e);
+      }
+    }
+
 
 
     File after = new File(composeFile.getParentFile(), "after.sh");
@@ -91,6 +115,7 @@ public class DockerComposeEnv implements Env<DockerComposeEnv> {
         throw new IllegalStateException("fail to execute " + afterPath);
       }
     }
+
   }
 
   @Override

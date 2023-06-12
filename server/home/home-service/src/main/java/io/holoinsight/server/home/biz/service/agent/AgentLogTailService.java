@@ -3,25 +3,28 @@
  */
 package io.holoinsight.server.home.biz.service.agent;
 
-import io.holoinsight.server.common.RetryUtils;
-import io.holoinsight.server.common.UtilMisc;
-import io.holoinsight.server.home.common.service.RegistryService;
-import io.holoinsight.server.home.common.util.MonitorException;
-import io.holoinsight.server.home.common.util.StringUtil;
-import io.holoinsight.server.home.common.util.TenantMetaUtil;
-import io.holoinsight.server.common.J;
-import com.google.protobuf.ProtocolStringList;
-import io.holoinsight.server.common.grpc.FileNode;
-import io.holoinsight.server.meta.common.model.QueryExample;
-import io.holoinsight.server.meta.facade.service.DataClientService;
-import lombok.extern.slf4j.Slf4j;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import com.google.protobuf.ProtocolStringList;
+
+import io.holoinsight.server.common.J;
+import io.holoinsight.server.common.RetryUtils;
+import io.holoinsight.server.common.UtilMisc;
+import io.holoinsight.server.common.grpc.FileNode;
+import io.holoinsight.server.home.biz.service.TenantInitService;
+import io.holoinsight.server.home.common.service.RegistryService;
+import io.holoinsight.server.home.common.util.MonitorException;
+import io.holoinsight.server.home.common.util.StringUtil;
+import io.holoinsight.server.meta.common.model.QueryExample;
+import io.holoinsight.server.meta.facade.service.DataClientService;
+import io.holoinsight.server.registry.grpc.prod.PreviewFileResponse;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  *
@@ -38,46 +41,54 @@ public class AgentLogTailService {
   @Autowired
   private DataClientService dataClientService;
 
-  public FileTailResponse listFiles(AgentParamRequest agentParamRequest, String tenant) {
+  @Autowired
+  private TenantInitService tenantInitService;
 
-    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant);
+  public FileTailResponse listFiles(AgentParamRequest agentParamRequest, String tenant,
+      String workspace) {
+
+    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant, workspace);
 
     FileTailResponse response = new FileTailResponse();
-    List<FileNode> fileNodes = RetryUtils.invoke(
-        () -> registryService.listFiles(tenant, dim, agentParamRequest.getLogpath()), null, 3, 1000,
-        new ArrayList<>());
+
+    List<FileNode> fileNodes = registryService.listFiles(tenantInitService.getTsdbTenant(tenant),
+        dim, agentParamRequest.getLogpath());
 
     response.addToDatas("dirTrees", convertFiledNodes(fileNodes));
     response.addToDatas("agentId", dim.get("agentId"));
     response.addToDatas("ip", dim.get("ip"));
     response.addToDatas("namespace", dim.get("namespace"));
-    response.addToDatas("pod", dim.get("pod"));
+    response.addToDatas("hostname", dim.get("hostname"));
 
     return response;
   }
 
-  public FileTailResponse previewFile(AgentParamRequest agentParamRequest, String tenant) {
+  public FileTailResponse previewFile(AgentParamRequest agentParamRequest, String tenant,
+      String workspace) {
 
-    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant);
+    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant, workspace);
     FileTailResponse response = new FileTailResponse();
-    ProtocolStringList protocolStringList = RetryUtils.invoke(
-        () -> registryService.previewFile(tenant, dim, agentParamRequest.getLogpath()), null, 3,
-        1000, new ArrayList<>());
 
-    response.addToDatas("lines", convertContentLines(protocolStringList));
+    PreviewFileResponse grpcResp = registryService
+        .previewFile(tenantInitService.getTsdbTenant(tenant), dim, agentParamRequest.getLogpath());
+
+    response.addToDatas("lines", convertContentLines(grpcResp.getContentList()));
+    response.addToDatas("charset", grpcResp.getCharset());
     response.addToDatas("agentId", dim.get("agentId"));
     response.addToDatas("ip", dim.get("ip"));
     response.addToDatas("namespace", dim.get("namespace"));
-    response.addToDatas("pod", dim.get("pod"));
+    response.addToDatas("hostname", dim.get("hostname"));
 
     return response;
   }
 
-  public FileTailResponse inspect(AgentParamRequest agentParamRequest, String tenant) {
+  public FileTailResponse inspect(AgentParamRequest agentParamRequest, String tenant,
+      String workspace) {
 
-    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant);
+    Map<String, Object> dim = getDimByRequest(agentParamRequest, tenant, workspace);
     FileTailResponse response = new FileTailResponse();
-    String result = RetryUtils.invoke(() -> registryService.inspect(tenant, dim), null, 3, 1000,
+    String result = RetryUtils.invoke(
+        () -> registryService.inspect(tenantInitService.getTsdbTenant(tenant), dim), null, 3, 1000,
         new ArrayList<>());
 
     Map<String, Object> map = J.toMap(result);
@@ -86,7 +97,7 @@ public class AgentLogTailService {
     response.addToDatas("agentId", dim.get("agentId"));
     response.addToDatas("ip", dim.get("ip"));
     response.addToDatas("namespace", dim.get("namespace"));
-    response.addToDatas("pod", dim.get("pod"));
+    response.addToDatas("hostname", dim.get("hostname"));
 
     return response;
   }
@@ -98,7 +109,8 @@ public class AgentLogTailService {
    * @param tenant
    * @return
    */
-  private Map<String, Object> getDimByRequest(AgentParamRequest agentParamRequest, String tenant) {
+  private Map<String, Object> getDimByRequest(AgentParamRequest agentParamRequest, String tenant,
+      String workspace) {
 
     QueryExample queryExample = new QueryExample();
 
@@ -119,8 +131,19 @@ public class AgentLogTailService {
         queryExample.getParams().put(entry.getKey(), entry.getValue());
       }
     }
+
+    if (queryExample.getParams().isEmpty()) {
+      throw new IllegalStateException("miss metadata query params");
+    }
+
+
+    Map<String, String> conditions = tenantInitService.getTenantWorkspaceMetaConditions(workspace);
+    if (!CollectionUtils.isEmpty(conditions)) {
+      queryExample.getParams().putAll(conditions);
+    }
+
     List<Map<String, Object>> list = dataClientService
-        .queryByExample(TenantMetaUtil.genTenantServerTableName(tenant), queryExample);
+        .queryByExample(tenantInitService.getTenantServerTable(tenant), queryExample);
 
     if (CollectionUtils.isEmpty(list)) {
       log.warn("get meta error，query param [" + queryExample.getParams().toString() + "] [" + tenant

@@ -8,6 +8,7 @@ import io.holoinsight.server.apm.common.model.specification.sw.RequestType;
 import io.holoinsight.server.apm.engine.model.EndpointRelationDO;
 import io.holoinsight.server.apm.engine.model.ServiceRelationDO;
 import io.holoinsight.server.apm.engine.model.SpanDO;
+import io.holoinsight.server.apm.engine.storage.ICommonBuilder;
 import io.holoinsight.server.apm.engine.storage.VirtualComponentStorage;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -27,6 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 public class VirtualComponentEsStorage implements VirtualComponentStorage {
@@ -34,38 +36,44 @@ public class VirtualComponentEsStorage implements VirtualComponentStorage {
   @Autowired
   private RestHighLevelClient client;
 
-  protected RestHighLevelClient esClient() {
+  @Autowired
+  private ICommonBuilder commonBuilder;
+
+  protected RestHighLevelClient client() {
     return client;
   }
 
-  protected String rangeTimeField() {
-    return SpanDO.START_TIME;
+  @Override
+  public String timeSeriesField() {
+    return SpanDO.END_TIME;
   }
 
   @Override
   public List<VirtualComponent> getComponentList(String tenant, String service, long startTime,
-      long endTime, RequestType type, String sourceOrDest) throws IOException {
+      long endTime, RequestType type, String sourceOrDest, Map<String, String> termParams)
+      throws IOException {
     BoolQueryBuilder queryBuilder =
         QueryBuilders.boolQuery().must(QueryBuilders.termQuery(ServiceRelationDO.TENANT, tenant))
             .must(QueryBuilders.termQuery(sourceOrDest + "_service_name", service))
             .must(QueryBuilders.termQuery(ServiceRelationDO.TYPE, type.name()))
-            .must(QueryBuilders.rangeQuery(rangeTimeField()).gte(startTime).lte(endTime));
+            .must(QueryBuilders.rangeQuery(this.timeSeriesField()).gte(startTime).lte(endTime));
 
+    commonBuilder.addTermParams(queryBuilder, termParams);
     SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
-    sourceBuilder.size(1000);
+    sourceBuilder.size(0);
     sourceBuilder.query(queryBuilder);
-    sourceBuilder.aggregation(CommonBuilder.buildAgg(ServiceRelationDO.ENTITY_ID));
+    sourceBuilder.aggregation(commonBuilder.buildAgg(ServiceRelationDO.ENTITY_ID));
 
     SearchRequest searchRequest = new SearchRequest(ServiceRelationDO.INDEX_NAME);
     searchRequest.source(sourceBuilder);
-    SearchResponse response = esClient().search(searchRequest, RequestOptions.DEFAULT);
+    SearchResponse response = client().search(searchRequest, RequestOptions.DEFAULT);
 
     return buildComponentList(response, sourceOrDest);
   }
 
   @Override
   public List<String> getTraceIds(String tenant, String service, String address, long startTime,
-      long endTime) throws IOException {
+      long endTime, Map<String, String> termParams) throws IOException {
     TermsAggregationBuilder aggregationBuilder = AggregationBuilders
         .terms(ServiceRelationDO.TRACE_ID).field(ServiceRelationDO.TRACE_ID).executionHint("map")
         .collectMode(Aggregator.SubAggCollectionMode.BREADTH_FIRST).size(1000);
@@ -73,19 +81,20 @@ public class VirtualComponentEsStorage implements VirtualComponentStorage {
     BoolQueryBuilder queryBuilder =
         QueryBuilders.boolQuery().must(QueryBuilders.termQuery(ServiceRelationDO.TENANT, tenant))
             .must(QueryBuilders.termQuery(ServiceRelationDO.DEST_SERVICE_NAME, address))
-            .must(QueryBuilders.rangeQuery(rangeTimeField()).gte(startTime).lte(endTime));
+            .must(QueryBuilders.rangeQuery(this.timeSeriesField()).gte(startTime).lte(endTime));
     if (!StringUtils.isEmpty(service)) {
       queryBuilder.must(QueryBuilders.termQuery(ServiceRelationDO.SOURCE_SERVICE_NAME, service));
     }
 
+    commonBuilder.addTermParams(queryBuilder, termParams);
     SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
-    sourceBuilder.size(1000);
+    sourceBuilder.size(0);
     sourceBuilder.query(queryBuilder);
     sourceBuilder.aggregation(aggregationBuilder);
 
     SearchRequest searchRequest = new SearchRequest(ServiceRelationDO.INDEX_NAME);
     searchRequest.source(sourceBuilder);
-    SearchResponse response = esClient().search(searchRequest, RequestOptions.DEFAULT);
+    SearchResponse response = client().search(searchRequest, RequestOptions.DEFAULT);
 
     List<String> traceIds = new ArrayList<>();
     Terms terms = response.getAggregations().get(ServiceRelationDO.TRACE_ID);
@@ -108,7 +117,7 @@ public class VirtualComponentEsStorage implements VirtualComponentStorage {
 
       VirtualComponent db = new VirtualComponent();
       db.buildFromServiceRelation(entityId, component, sourceOrDest);
-      db.setMetric(CommonBuilder.buildMetric(bucket));
+      db.setMetric(commonBuilder.buildMetric(bucket));
 
       result.add(db);
     }

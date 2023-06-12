@@ -6,6 +6,7 @@ package io.holoinsight.server.home.alert.plugin;
 
 import io.holoinsight.server.common.J;
 import io.holoinsight.server.common.service.FuseProtector;
+import io.holoinsight.server.home.alert.common.G;
 import io.holoinsight.server.home.alert.model.event.AlertNotify;
 import io.holoinsight.server.home.alert.model.event.AlertNotifyRequest;
 import io.holoinsight.server.home.alert.service.event.AlertHandlerExecutor;
@@ -33,22 +34,25 @@ public abstract class AlertNotifyHandler implements AlertHandlerExecutor {
     if (CollectionUtils.isEmpty(alertNotifies)) {
       LOGGER.info("alertNotifies is empty.");
     }
+    int count = 0;
     for (AlertNotify alertNotify : alertNotifies) {
       try {
+        LOGGER.info("{} alert notify handle begin.", alertNotify.getTraceId());
         if (alertNotify.getIsRecover() != null && alertNotify.getIsRecover()) {
           LOGGER.info("{} alert notify is recover.", alertNotify.getTraceId());
-          return;
+          continue;
         }
-
+        count++;
         sendPlugin(alertNotify);
         FuseProtector.voteComplete(NORMAL_AlertNotifyHandler);
-      } catch (Exception e) {
+      } catch (Throwable e) {
         LOGGER.error(
             "[HoloinsightAlertInternalException][AlertNotifyHandler][1] {} fail to alert_notify_handle for {}",
             alertNotify.getTraceId(), e.getMessage(), e);
         FuseProtector.voteNormalError(NORMAL_AlertNotifyHandler, e.getMessage());
       }
     }
+    LOGGER.info("alert_notification_notify_step size [{}]", count);
   }
 
   private void sendPlugin(AlertNotify alertNotify) {
@@ -74,10 +78,13 @@ public abstract class AlertNotifyHandler implements AlertHandlerExecutor {
 
     alertNotifyRequest.setTenant(getTenant(alertNotify));
     alertNotifyRequest.setWorkspace(getWorkspace(alertNotify));
+    alertNotifyRequest.setLogAnalysis(alertNotify.getLogAnalysis());
 
     if (!CollectionUtils.isEmpty(alertNotify.getNotifyDataInfos())) {
       alertNotifyRequest.setNotifyDataInfos(alertNotify.getNotifyDataInfos());
     }
+    LOGGER.info("{} begin to send alert notify to gateway for {}", alertNotify.getTraceId(),
+        G.get().toJson(alertNotifyRequest));
     boolean success = this.gatewayService.sendAlertNotifyV3(alertNotifyRequest);
 
     if (!success) {
